@@ -785,6 +785,10 @@ body {
                     // Update local bot data with new conversations
                     currentBot = result.bot;
                     chatHistory = currentBot.conversations || [];
+
+                    if (result.usage && currentUser) {
+                        currentUser.usage = result.usage;
+                    }
                     
                     renderMessages();
                     updateChatInfo();
@@ -841,6 +845,11 @@ body {
                         </div>
                     `;
                     chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    if (result.usage && currentUser) {
+                        currentUser.usage = result.usage;
+                    }
+
                     updateChatInfo();
                 } else {
                     showAlert(result.message || 'Errore nella generazione dell\'immaggine', 'error');

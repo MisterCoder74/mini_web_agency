@@ -130,31 +130,46 @@ function validateHistory($history) {
     if (!is_array($history)) {
         return [];
     }
-    
+
     $validated = [];
     foreach ($history as $entry) {
-        if (!isset($entry['role']) || !isset($entry['content'])) {
+        if (!is_array($entry) || !isset($entry['role']) || !isset($entry['content'])) {
             continue;
         }
+
         $role = sanitizeInput($entry['role']);
         $content = sanitizeInput($entry['content']);
-        
-        // Only allow valid roles
-        if (!in_array($role, ['user', 'assistant', 'system'])) {
+
+        if (!in_array($role, ['user', 'assistant', 'system'], true)) {
             continue;
         }
-        
-        // Limit content length
+
         if (strlen($content) > 10000) {
             $content = substr($content, 0, 10000);
         }
-        
-        $validated[] = [
+
+        $validatedEntry = [
             'role' => $role,
             'content' => $content
         ];
+
+        if (isset($entry['id'])) {
+            $id = sanitizeInput($entry['id']);
+            if (!empty($id)) {
+                $validatedEntry['id'] = substr($id, 0, 128);
+            }
+        }
+
+        if (isset($entry['timestamp'])) {
+            $timestamp = sanitizeInput($entry['timestamp']);
+            if (!empty($timestamp)) {
+                $validatedEntry['timestamp'] = substr($timestamp, 0, 64);
+            }
+        }
+
+        $validated[] = $validatedEntry;
     }
-    
+
     return $validated;
 }
 
@@ -328,7 +343,7 @@ function canSendMessage($user) {
     return $user['plan'] === 'premium' || $user['usage']['messages'] < $limits['messages'];
 }
 
-function canGenerateImage($user) {
+function canGenerateImage(&$user) {
     resetUsageIfNeeded($user);
     $limits = getPlanLimits($user['plan']);
     return $user['plan'] === 'premium' || $user['usage']['images'] < $limits['images'];
@@ -469,7 +484,8 @@ switch ($action) {
             $user = findUserById($_SESSION['user_id']);
             if ($user) {
                 resetUsageIfNeeded($user);
-                // Don't send settings (which may contain sensitive data) to client
+                // Don't send sensitive fields to client
+                unset($user['password']);
                 unset($user['settings']);
                 echo json_encode(['success' => true, 'user' => $user]);
             } else {
@@ -754,12 +770,14 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
             break;
         }
-        
+
+        resetUsageIfNeeded($user);
+
         if (!canSendMessage($user)) {
             echo json_encode(['success' => false, 'message' => 'Limite messaggi raggiunto']);
             break;
         }
-        
+
         // Find bot
         $bot = null;
         $botIndex = -1;
@@ -770,22 +788,23 @@ switch ($action) {
                 break;
             }
         }
-        
+
         if (!$bot) {
             echo json_encode(['success' => false, 'message' => 'Bot non trovato']);
             break;
         }
-        
+
         // Get personality and model
         $personality = $bot['personality'] ?? '';
         $model = $bot['model'] ?? 'gpt-4o-mini';
-        
+        $historyLimit = getHistoryLimit($user['plan'] ?? 'free');
+
         // Build full conversation history from server storage + client history
         $fullHistory = [];
         if (isset($bot['conversations']) && is_array($bot['conversations'])) {
             $fullHistory = $bot['conversations'];
         }
-        
+
         // Merge with client history (client sends recent messages that might have been missed)
         $existingIds = [];
         foreach ($fullHistory as $entry) {
@@ -793,15 +812,18 @@ switch ($action) {
                 $existingIds[] = $entry['id'];
             }
         }
-        
+
         foreach ($history as $entry) {
-            if (!isset($entry['id']) || !in_array($entry['id'], $existingIds)) {
+            if (!isset($entry['id']) || !in_array($entry['id'], $existingIds, true)) {
                 $fullHistory[] = $entry;
             }
         }
-        
+
+        // Send only recent context to OpenAI (full history is still persisted server-side)
+        $contextHistory = array_slice($fullHistory, -$historyLimit);
+
         // Call OpenAI API with apiKey from client
-        $response = callOpenAI($message, $personality, $fullHistory, $model, $apiKey);
+        $response = callOpenAI($message, $personality, $contextHistory, $model, $apiKey);
         
         // Check if it's an error
         if (strpos($response, 'Errore') !== false) {
@@ -851,7 +873,7 @@ switch ($action) {
         saveUsers($users);
         releaseLock($fp);
         
-        // Get updated bot
+        // Get updated bot + updated usage
         $user = findUserById($_SESSION['user_id']);
         $updatedBot = null;
         foreach ($user['bots'] as $userBot) {
@@ -860,10 +882,23 @@ switch ($action) {
                 break;
             }
         }
-        
+
+        $limits = getPlanLimits($user['plan'] ?? 'free');
+        $nearLimit = false;
+        if (($user['plan'] ?? 'free') !== 'premium') {
+            $remaining = $limits['messages'] - ($user['usage']['messages'] ?? 0);
+            $nearLimit = $remaining <= 10;
+        }
+
+        unset($user['password']);
+        unset($user['settings']);
+
         echo json_encode([
-            'success' => true, 
+            'success' => true,
             'response' => $response,
+            'usage' => $user['usage'] ?? null,
+            'conversation' => $updatedBot['conversations'] ?? [],
+            'nearLimit' => $nearLimit,
             'bot' => $updatedBot
         ]);
         break;
@@ -910,8 +945,13 @@ switch ($action) {
         // Update usage
         $user['usage']['images']++;
         updateUser($user);
-        
-        echo json_encode(['success' => true, 'url' => $result['url']]);
+
+        echo json_encode([
+            'success' => true,
+            'url' => $result['url'],
+            'imageUrl' => $result['url'],
+            'usage' => $user['usage'] ?? null
+        ]);
         break;
 
     case 'deleteAccount':
