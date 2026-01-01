@@ -37,7 +37,7 @@ if (!file_exists($usersFile)) {
 
 
 // ============================================================================
-// SANITIZATION & VALIDATION HELPERS
+// HELPER FUNCTIONS
 // ============================================================================
 
 /**
@@ -173,60 +173,8 @@ function validateHistory($history) {
     return $validated;
 }
 
-
 // ============================================================================
-// FILE LOCKING MECHANISM
-// ============================================================================
-
-/**
- * Acquire exclusive lock on file
- */
-function acquireLock($filePath) {
-    $fp = fopen($filePath, 'c+');
-    if (!$fp) {
-        return false;
-    }
-    
-    if (!flock($fp, LOCK_EX)) {
-        fclose($fp);
-        return false;
-    }
-    
-    return $fp;
-}
-
-/**
- * Release lock and close file handle
- */
-function releaseLock($fp) {
-    if ($fp) {
-        flock($fp, LOCK_UN);
-        fclose($fp);
-    }
-}
-
-/**
- * Execute function with file lock
- */
-function withLock($filePath, $callback) {
-    $fp = acquireLock($filePath);
-    if (!$fp) {
-        return ['success' => false, 'message' => 'Impossibile acquisire lock sul file'];
-    }
-    
-    try {
-        $result = $callback($fp);
-        releaseLock($fp);
-        return $result;
-    } catch (Exception $e) {
-        releaseLock($fp);
-        throw $e;
-    }
-}
-
-
-// ============================================================================
-// USER DATA FUNCTIONS (with file locking)
+// LOAD/SAVE FUNCTIONS
 // ============================================================================
 
 function loadUsers() {
@@ -240,23 +188,9 @@ function saveUsers($users) {
     return file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
 }
 
-function loadUsersWithLock() {
-    global $usersFile;
-    return withLock($usersFile, function($fp) {
-        global $usersFile;
-        $data = file_get_contents($usersFile);
-        $users = json_decode($data, true) ?: [];
-        return ['success' => true, 'users' => $users, 'fp' => $fp];
-    });
-}
-
-function saveUsersWithLock($users) {
-    global $usersFile;
-    return withLock($usersFile, function($fp) use ($users, $usersFile) {
-        file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
-        return ['success' => true];
-    });
-}
+// ============================================================================
+// FINDER FUNCTIONS
+// ============================================================================
 
 function findUserById($userId) {
     $users = loadUsers();
@@ -278,25 +212,20 @@ function findUserByEmail($email) {
     return null;
 }
 
+// ============================================================================
+// UPDATE FUNCTIONS
+// ============================================================================
+
 function updateUser($userData) {
-    $result = loadUsersWithLock();
-    if (!$result['success']) {
-        return false;
-    }
-    
-    $users = $result['users'];
-    $fp = $result['fp'];
+    $users = loadUsers();
     
     for ($i = 0; $i < count($users); $i++) {
         if ($users[$i]['id'] === $userData['id']) {
             $users[$i] = $userData;
-            saveUsers($users);
-            releaseLock($fp);
-            return true;
+            return saveUsers($users);
         }
     }
     
-    releaseLock($fp);
     return false;
 }
 
@@ -304,13 +233,13 @@ function resetUsageIfNeeded(&$user) {
     $today = date('Y-m-d');
     $currentMonth = date('Y-m');
     
-    // Reset giornaliero immagini
+    // Reset daily images
     if (!isset($user['usage']['lastReset']) || $user['usage']['lastReset'] !== $today) {
         $user['usage']['images'] = 0;
         $user['usage']['lastReset'] = $today;
     }
     
-    // Reset mensile messaggi
+    // Reset monthly messages
     if (!isset($user['usage']['lastMessageReset']) || substr($user['usage']['lastMessageReset'], 0, 7) !== $currentMonth) {
         $user['usage']['messages'] = 0;
         $user['usage']['lastMessageReset'] = $today;
@@ -318,6 +247,10 @@ function resetUsageIfNeeded(&$user) {
     
     updateUser($user);
 }
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
 
 function getPlanLimits($plan) {
     $limits = [
@@ -355,14 +288,14 @@ function generateId() {
 }
 
 // ============================================================================
-// OPENAI API FUNCTIONS (apiKey passed from client)
+// OPENAI FUNCTIONS
 // ============================================================================
 
 /**
  * Call OpenAI Chat Completions API
  * @param string $message User message
  * @param string $personality Bot personality
- * * @param array $history Full conversation history
+ * @param array $history Full conversation history
  * @param string $model Model to use
  * @param string $apiKey OpenAI API key from client
  */
@@ -500,60 +433,48 @@ switch ($action) {
     case 'register':
         $name = sanitizeInput($input['name'] ?? '');
         $email = sanitizeInput($input['email'] ?? '');
-        $password = $input['password'] ?? ''; // Don't sanitize password, only validate
+        $password = $input['password'] ?? '';
         
-        // Validate all fields
+        // Validation
         if (empty($name) || empty($email) || empty($password)) {
             echo json_encode(['success' => false, 'message' => 'Tutti i campi sono obbligatori']);
             break;
         }
         
-        // Validate email format
+        if (strlen($password) < 8) {
+            echo json_encode(['success' => false, 'message' => 'Password minimo 8 caratteri']);
+            break;
+        }
+        
         if (!validateEmail($email)) {
-            echo json_encode(['success' => false, 'message' => 'Formato email non valido']);
+            echo json_encode(['success' => false, 'message' => 'Email non valida']);
             break;
         }
         
-        // Validate password strength
-        if (!validatePassword($password)) {
-            echo json_encode(['success' => false, 'message' => 'La password deve essere di almeno 8 caratteri']);
-            break;
-        }
-        
-        // Check if email already exists
         if (findUserByEmail($email)) {
             echo json_encode(['success' => false, 'message' => 'Email già registrata']);
             break;
         }
         
-        // Load users with lock and save new user
-        $result = loadUsersWithLock();
-        if (!$result['success']) {
-            echo json_encode(['success' => false, 'message' => 'Errore durante la registrazione']);
-            break;
-        }
-        
-        $users = $result['users'];
-        $fp = $result['fp'];
-        
+        // Create user
+        $users = loadUsers();
         $newUser = [
             'id' => generateId(),
             'name' => $name,
             'email' => $email,
-            'password' => password_hash($password, PASSWORD_DEFAULT), // Secure password hashing
+            'password' => password_hash($password, PASSWORD_DEFAULT),
             'plan' => 'free',
             'usage' => [
                 'messages' => 0,
                 'images' => 0,
-                'lastReset' => date('Y-m-d')
+                'lastReset' => date('Y-m-d'),
+                'lastMessageReset' => date('Y-m')
             ],
-            'bots' => [],
-            'settings' => []
+            'bots' => []
         ];
         
         $users[] = $newUser;
         saveUsers($users);
-        releaseLock($fp);
         
         echo json_encode(['success' => true, 'message' => 'Registrazione completata']);
         break;
@@ -569,11 +490,10 @@ switch ($action) {
         
         $user = findUserByEmail($email);
         
-        // Use password_verify for secure password comparison
         if ($user && password_verify($password, $user['password'])) {
             $_SESSION['user_id'] = $user['id'];
-            unset($user['password']); // Don't send password to client
             resetUsageIfNeeded($user);
+            unset($user['password']);
             echo json_encode(['success' => true, 'user' => $user]);
         } else {
             echo json_encode(['success' => false, 'message' => 'Credenziali non valide']);
@@ -585,55 +505,29 @@ switch ($action) {
         echo json_encode(['success' => true]);
         break;
 
-    case 'upgradePlan':
-        if (!isset($_SESSION['user_id'])) {
-            echo json_encode(['success' => false, 'message' => 'Non autenticato']);
-            break;
-        }
-        
-        $plan = sanitizeInput($input['plan'] ?? '');
-        $allowedPlans = ['basic', 'premium'];
-        
-        if (!in_array($plan, $allowedPlans)) {
-            echo json_encode(['success' => false, 'message' => 'Piano non valido']);
-            break;
-        }
-        
-        $user = findUserById($_SESSION['user_id']);
-        if (!$user) {
-            echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
-            break;
-        }
-        
-        $user['plan'] = $plan;
-        updateUser($user);
-        
-        echo json_encode(['success' => true, 'message' => 'Piano aggiornato']);
-        break;
-
     case 'createBot':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
             break;
         }
         
-        // Validate and sanitize bot name
-        $name = validateBotName($input['name'] ?? '');
-        if ($name === false) {
-            echo json_encode(['success' => false, 'message' => 'Nome bot non valido (max 100 caratteri)']);
+        $name = sanitizeInput($input['name'] ?? '');
+        $personality = sanitizeInput($input['personality'] ?? '');
+        $model = $input['model'] ?? 'gpt-4o-mini';
+        
+        if (empty($name) || empty($personality)) {
+            echo json_encode(['success' => false, 'message' => 'Nome e personalità richiesti']);
             break;
         }
         
-        // Validate and sanitize bot personality
-        $personality = validateBotPersonality($input['personality'] ?? '');
-        if ($personality === false) {
-            echo json_encode(['success' => false, 'message' => 'Personalità non valida (max 5000 caratteri)']);
+        if (strlen($name) > 100) {
+            echo json_encode(['success' => false, 'message' => 'Nome troppo lungo (max 100 caratteri)']);
             break;
         }
         
-        $model = sanitizeInput($input['model'] ?? 'gpt-3.5-turbo');
-        if (!in_array($model, ['gpt-3.5-turbo', 'gpt-4.1-nano'])) {
-            $model = 'gpt-3.5-turbo';
+        if (strlen($personality) > 5000) {
+            echo json_encode(['success' => false, 'message' => 'Personalità troppo lunga (max 5000 caratteri)']);
+            break;
         }
         
         $user = findUserById($_SESSION['user_id']);
@@ -751,18 +645,18 @@ switch ($action) {
             break;
         }
         
-        $botId = sanitizeInput($input['botId'] ?? '');
-        $message = validateMessage($input['message'] ?? '');
-        $history = validateHistory($input['history'] ?? []);
-        $apiKey = sanitizeInput($input['apiKey'] ?? '');
+        $botId = $input['botId'] ?? '';
+        $message = sanitizeInput($input['message'] ?? '');
+        $apiKey = $input['apiKey'] ?? '';
+        $history = $input['history'] ?? [];
         
-        if (empty($botId) || $message === false) {
+        if (empty($botId) || empty($message)) {
             echo json_encode(['success' => false, 'message' => 'Bot ID e messaggio richiesti']);
             break;
         }
         
         if (empty($apiKey)) {
-            echo json_encode(['success' => false, 'message' => 'API Key OpenAI richiesta']);
+            echo json_encode(['success' => false, 'message' => 'API Key non configurata']);
             break;
         }
         
@@ -771,14 +665,12 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
             break;
         }
-
-        resetUsageIfNeeded($user);
-
+        
         if (!canSendMessage($user)) {
             echo json_encode(['success' => false, 'message' => 'Limite messaggi raggiunto']);
             break;
         }
-
+        
         // Find bot
         $bot = null;
         $botIndex = -1;
@@ -789,118 +681,64 @@ switch ($action) {
                 break;
             }
         }
-
+        
         if (!$bot) {
             echo json_encode(['success' => false, 'message' => 'Bot non trovato']);
             break;
         }
-
-        // Get personality and model
-        $personality = $bot['personality'] ?? '';
-        $model = $bot['model'] ?? 'gpt-4o-mini';
-        $historyLimit = getHistoryLimit($user['plan'] ?? 'free');
-
-        // Build full conversation history from server storage + client history
-        $fullHistory = [];
-        if (isset($bot['conversations']) && is_array($bot['conversations'])) {
-            $fullHistory = $bot['conversations'];
-        }
-
-        // Merge with client history (client sends recent messages that might have been missed)
-        $existingIds = [];
-        foreach ($fullHistory as $entry) {
-            if (isset($entry['id'])) {
-                $existingIds[] = $entry['id'];
-            }
-        }
-
-        foreach ($history as $entry) {
-            if (!isset($entry['id']) || !in_array($entry['id'], $existingIds, true)) {
-                $fullHistory[] = $entry;
-            }
-        }
-
-        // Send only recent context to OpenAI (full history is still persisted server-side)
-        $contextHistory = array_slice($fullHistory, -$historyLimit);
-
-        // Call OpenAI API with apiKey from client
-        $response = callOpenAI($message, $personality, $contextHistory, $model, $apiKey);
         
-        // Check if it's an error
+        // Add user message to history
+        $bot['conversations'][] = [
+            'id' => generateId(),
+            'role' => 'user',
+            'content' => $message,
+            'timestamp' => date('Y-m-d H:i:s')
+        ];
+        
+        // Generate response
+        $response = callOpenAI($message, $bot['personality'], $history, $bot['model'], $apiKey);
+        
+        // Check for errors
         if (strpos($response, 'Errore') !== false) {
             echo json_encode(['success' => false, 'message' => $response]);
             break;
         }
         
-        // Update usage
+        // Add assistant response to history
+        $bot['conversations'][] = [
+            'id' => generateId(),
+            'role' => 'assistant',
+            'content' => $response,
+            'timestamp' => date('Y-m-d H:i:s')
+        ];
+        
+        // Get history limit
+        $maxMessages = getHistoryLimit($user['plan']);
+        
+        // Check if near limit
+        $nearLimit = false;
+        if ($user['plan'] === 'premium' && count($bot['conversations']) >= ($maxMessages - 4)) {
+            $nearLimit = true;
+        }
+        
+        // Keep only recent messages
+        if (count($bot['conversations']) > $maxMessages) {
+            $bot['conversations'] = array_slice($bot['conversations'], -$maxMessages);
+        }
+        
+        // Update bot in user
+        $user['bots'][$botIndex] = $bot;
+        
+        // Update usage and save
         $user['usage']['messages']++;
         updateUser($user);
         
-        // Update bot with new conversation - with file locking
-        $result = loadUsersWithLock();
-        if (!$result['success']) {
-            echo json_encode(['success' => false, 'message' => 'Errore nel salvataggio']);
-            break;
-        }
-        
-        $users = $result['users'];
-        $fp = $result['fp'];
-        
-        for ($i = 0; $i < count($users); $i++) {
-            if ($users[$i]['id'] === $user['id']) {
-                foreach ($users[$i]['bots'] as &$userBot) {
-                    if ($userBot['id'] === $botId) {
-                        // Add user message to conversations
-                        $userBot['conversations'][] = [
-                            'id' => generateId(),
-                            'role' => 'user',
-                            'content' => $message,
-                            'timestamp' => date('Y-m-d H:i:s')
-                        ];
-                        // Add assistant response to conversations
-                        $userBot['conversations'][] = [
-                            'id' => generateId(),
-                            'role' => 'assistant',
-                            'content' => $response,
-                            'timestamp' => date('Y-m-d H:i:s')
-                        ];
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-        
-        saveUsers($users);
-        releaseLock($fp);
-        
-        // Get updated bot + updated usage
-        $user = findUserById($_SESSION['user_id']);
-        $updatedBot = null;
-        foreach ($user['bots'] as $userBot) {
-            if ($userBot['id'] === $botId) {
-                $updatedBot = $userBot;
-                break;
-            }
-        }
-
-        $limits = getPlanLimits($user['plan'] ?? 'free');
-        $nearLimit = false;
-        if (($user['plan'] ?? 'free') !== 'premium') {
-            $remaining = $limits['messages'] - ($user['usage']['messages'] ?? 0);
-            $nearLimit = $remaining <= 10;
-        }
-
-        unset($user['password']);
-        unset($user['settings']);
-
         echo json_encode([
             'success' => true,
             'response' => $response,
-            'usage' => $user['usage'] ?? null,
-            'conversation' => $updatedBot['conversations'] ?? [],
-            'nearLimit' => $nearLimit,
-            'bot' => $updatedBot
+            'usage' => $user['usage'],
+            'conversation' => $bot['conversations'],
+            'nearLimit' => $nearLimit
         ]);
         break;
 
@@ -910,17 +748,17 @@ switch ($action) {
             break;
         }
         
+        $botId = $input['botId'] ?? '';
         $prompt = sanitizeInput($input['prompt'] ?? '');
-        $botId = sanitizeInput($input['botId'] ?? '');
-        $apiKey = sanitizeInput($input['apiKey'] ?? '');
+        $apiKey = $input['apiKey'] ?? '';
         
-        if (empty($prompt)) {
-            echo json_encode(['success' => false, 'message' => 'Prompt richiesto']);
+        if (empty($botId) || empty($prompt)) {
+            echo json_encode(['success' => false, 'message' => 'Bot ID e prompt richiesti']);
             break;
         }
         
         if (empty($apiKey)) {
-            echo json_encode(['success' => false, 'message' => 'API Key OpenAI richiesta']);
+            echo json_encode(['success' => false, 'message' => 'API Key non configurata']);
             break;
         }
         
@@ -935,24 +773,49 @@ switch ($action) {
             break;
         }
         
-        // Call DALL-E API with apiKey from client
-        $result = callDallE($prompt, $apiKey);
+        // Generate image
+        $imageResult = callDallE($prompt, $apiKey);
         
-        if (isset($result['error'])) {
-            echo json_encode(['success' => false, 'message' => $result['error']]);
+        if (isset($imageResult['error'])) {
+            echo json_encode(['success' => false, 'message' => $imageResult['error']]);
             break;
         }
         
         // Update usage
         $user['usage']['images']++;
         updateUser($user);
-
+        
         echo json_encode([
             'success' => true,
-            'url' => $result['url'],
-            'imageUrl' => $result['url'],
-            'usage' => $user['usage'] ?? null
+            'imageUrl' => $imageResult['url'],
+            'usage' => $user['usage']
         ]);
+        break;
+
+    case 'upgradePlan':
+        if (!isset($_SESSION['user_id'])) {
+            echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        $plan = sanitizeInput($input['plan'] ?? '');
+        $allowedPlans = ['basic', 'premium'];
+        
+        if (!in_array($plan, $allowedPlans)) {
+            echo json_encode(['success' => false, 'message' => 'Piano non valido']);
+            break;
+        }
+        
+        $user = findUserById($_SESSION['user_id']);
+        if (!$user) {
+            echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
+            break;
+        }
+        
+        $user['plan'] = $plan;
+        updateUser($user);
+        
+        echo json_encode(['success' => true, 'message' => 'Piano aggiornato']);
         break;
 
     case 'deleteAccount':
@@ -963,14 +826,7 @@ switch ($action) {
         
         $userId = $_SESSION['user_id'];
         
-        $result = loadUsersWithLock();
-        if (!$result['success']) {
-            echo json_encode(['success' => false, 'message' => 'Errore durante l\'eliminazione']);
-            break;
-        }
-        
-        $users = $result['users'];
-        $fp = $result['fp'];
+        $users = loadUsers();
         
         $newUsers = [];
         $found = false;
@@ -983,14 +839,12 @@ switch ($action) {
         }
         
         if (!$found) {
-            releaseLock($fp);
             echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
             break;
         }
         
         $users = $newUsers;
         saveUsers($users);
-        releaseLock($fp);
         
         session_destroy();
         
