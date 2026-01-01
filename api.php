@@ -241,6 +241,7 @@ function saveUsers($users) {
 }
 
 function loadUsersWithLock() {
+    global $usersFile;
     return withLock($usersFile, function($fp) {
         global $usersFile;
         $data = file_get_contents($usersFile);
@@ -251,7 +252,7 @@ function loadUsersWithLock() {
 
 function saveUsersWithLock($users) {
     global $usersFile;
-    return withLock($usersFile, function($fp) use ($users) {
+    return withLock($usersFile, function($fp) use ($users, $usersFile) {
         file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
         return ['success' => true];
     });
