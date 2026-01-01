@@ -1,2 +1,30 @@
 [25-Nov-2025 23:44:10 UTC] PHP Warning:  Undefined array key "password" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/TESTVARI/chatbot_agency_mini/api.php on line 306
 [25-Nov-2025 23:44:21 UTC] PHP Warning:  Undefined array key "password" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/TESTVARI/chatbot_agency_mini/api.php on line 306
+[01-Jan-2026 01:57:16 UTC] PHP Fatal error:  Uncaught TypeError: flock(): supplied resource is not a valid stream resource in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php:203
+Stack trace:
+#0 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(203): flock(Resource id #7, 3)
+#1 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(556): releaseLock(Resource id #7)
+#2 {main}
+  thrown in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 203
+[01-Jan-2026 07:32:36 UTC] PHP Fatal error:  Uncaught TypeError: flock(): supplied resource is not a valid stream resource in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php:203
+Stack trace:
+#0 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(203): flock(Resource id #7, 3)
+#1 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(294): releaseLock(Resource id #7)
+#2 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(319): updateUser(Array)
+#3 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(576): resetUsageIfNeeded(Array)
+#4 {main}
+  thrown in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 203
+[01-Jan-2026 07:37:38 UTC] PHP Fatal error:  Uncaught TypeError: flock(): supplied resource is not a valid stream resource in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php:203
+Stack trace:
+#0 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(203): flock(Resource id #7, 3)
+#1 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(294): releaseLock(Resource id #7)
+#2 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(319): updateUser(Array)
+#3 /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php(576): resetUsageIfNeeded(Array)
+#4 {main}
+  thrown in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 203
+[01-Jan-2026 07:39:38 UTC] PHP Warning:  Undefined array key "password" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 574
+[01-Jan-2026 07:39:44 UTC] PHP Warning:  Undefined array key "password" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 574
+[01-Jan-2026 07:39:57 UTC] PHP Warning:  Undefined array key "password" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 574
+[01-Jan-2026 07:46:15 UTC] PHP Warning:  Undefined array key "password" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 574
+[01-Jan-2026 08:12:35 UTC] PHP Warning:  Undefined array key "status" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 679
+[01-Jan-2026 08:12:58 UTC] PHP Warning:  Undefined array key "status" in /srv/disk4/3964005/www/testsite.vivacitydesign.net/CTO-TESTS/mini_chatbot_agency-main/api.php on line 679

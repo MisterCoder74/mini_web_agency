@@ -184,6 +184,66 @@ body {
     border-radius: 4px;
     margin-bottom: 1rem;
     font-size: 0.875rem;
+} 
+            
+/* Grid layout for ChatBots section */
+.chatbots-layout.grid-2 {
+display: grid;
+grid-template-columns: 1fr 2fr;
+gap: 1.5rem;
+}
+
+.left-panel {
+display: flex;
+flex-direction: column;
+justify-content: start;
+}
+
+.right-panel {
+display: flex;
+flex-direction: column;
+gap: 1rem;
+}
+
+.header-row {
+display: flex;
+justify-content: space-between;
+align-items: center;
+}
+
+.bots-list {
+margin-top: 1rem;
+border-top: 1px solid #e5e7eb;
+padding-top: 1rem;
+}
+
+/* Chat adjustments */
+.chat-header {
+display: flex;
+justify-content: space-between;
+align-items: center;
+}
+
+.chat-input-area {
+display: flex;
+gap: 0.5rem;
+margin-top: 1rem;
+}
+
+.chat-input-area input {
+flex: 1;
+}
+
+.button-row {
+display: flex;
+gap: 0.5rem;
+margin-top: 1rem;
+}
+
+/* Optional: small buttons */
+.btn.small {
+padding: 0.25rem 0.5rem;
+font-size: 0.85rem;
 }            
     </style>
 </head>
@@ -220,8 +280,9 @@ body {
                 <label>Password:</label>
                 <input type="password" id="login-password" required>
             </div>
-            <button class="btn" onclick="login()">Accedi</button>
-            <a href="#" onclick="showRegister()" class="reglink">Non hai un account?</a>
+            <button class="btn" onclick="login()">Accedi</button><br>
+            <p style="margin-top: .5rem;"><small><a href="#" onclick="showRegister()" class="reglink">Non hai un account?</a> <br><a class="reglink" href="reset_password.html">Hai dimenticato la password?</a>
+                    </small></p>
         </div>
 
         <!-- Register Form -->
@@ -281,54 +342,72 @@ body {
         </div>
 
         <!-- ChatBots Section -->
-        <div id="chatbots-section" class="hidden">
-            <div class="card">
-                <h3>I Miei ChatBot</h3>
-                <button class="btn" onclick="showCreateBot()">Crea Nuovo Bot</button>
-                <div id="bots-list"></div>
-            </div>
+        <!-- ChatBots Section -->
+<div id="chatbots-section" class="hidden">
+<div class="chatbots-layout grid-2">
 
-            <!-- Create Bot Form -->
-            <div id="create-bot-form" class="card hidden">
-                <h3>Crea Nuovo ChatBot</h3>
-                <div class="form-group">
-                    <label>Nome Bot:</label>
-                    <input type="text" id="bot-name" required maxlength="100">
-                </div>
-                <div class="form-group">
-                    <label>Personalità/Ruolo:</label>
-                    <textarea id="bot-personality" placeholder="Es: Sei un assistente esperto in cucina italiana..." maxlength="5000"></textarea>
-                </div>
-                <div class="form-group">
-                    <label>Modello:</label>
-                    <select id="bot-model">
-                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                        <option value="gpt-4.1-nano">GPT-4.1-nano</option>
-                    </select>
-                </div>
-                <button class="btn" onclick="createBot()">Crea Bot</button>
-                <button class="btn secondary" onclick="hideCreateBot()">Annulla</button>
-            </div>
+<!-- Left Column: Bot List -->
+<div class="card left-panel">
+<div class="header-row">
+<h3>I Miei ChatBot</h3>
+<button class="btn small" onclick="showCreateBot()">+ Nuovo Bot</button>
+</div>
+<div id="bots-list" class="bots-list"></div>
+</div>
 
-            <!-- Chat Interface -->
-            <div id="chat-interface" class="card hidden">
-                <h3 id="chat-bot-name"></h3>
-                <div id="chat-messages" class="chat-container"></div>
-                <div class="form-group">
-                    <input type="text" id="chat-input" placeholder="Scrivi un messaggio..." onkeypress="handleChatKeypress(event)">
-                </div>
-                <div class="form-group">
-                    <button class="btn" onclick="sendMessage()">Invia</button>
-                    <button class="btn secondary" onclick="generateImage()">Genera Immagine</button>
-                    <button class="btn secondary" onclick="closeChatInterface()">Chiudi</button>
-                </div>
-                <div class="usage-info">
-                        <p id="msg-remaining" class="small-text"></p>
-                        <p id="img-remaining" class="small-text"></p>
-                        <p id="history-warning" class="small-text"></p>
-                </div>    
-            </div>
-        </div>
+<!-- Right Column: Create Bot Form or Chat -->
+<div class="right-panel">
+
+<!-- Create Bot Form -->
+<div id="create-bot-form" class="card hidden">
+<h3>Crea Nuovo ChatBot</h3>
+<div class="form-group">
+<label>Nome Bot:</label>
+<input type="text" id="bot-name" required maxlength="100">
+</div>
+<div class="form-group">
+<label>Personalità/Ruolo:</label>
+<textarea id="bot-personality" placeholder="Es: Sei un assistente esperto in cucina italiana..." maxlength="2000"></textarea>
+</div>
+<div class="form-group">
+<label>Modello:</label>
+<select id="bot-model">
+<option value="gpt-4o-mini">GPT-4o-mini</option>
+<option value="gpt-4.1-nano">GPT-4.1-nano</option>
+</select>
+</div>
+<div class="button-row">
+<button class="btn" onclick="createBot()">Crea Bot</button>
+<button class="btn secondary" onclick="hideCreateBot()">Annulla</button>
+</div>
+</div>
+
+<!-- Chat Interface -->
+<div id="chat-interface" class="card hidden">
+<div class="chat-header">
+<h3 id="chat-bot-name"></h3>
+<button class="btn secondary small" onclick="closeChatInterface()">Chiudi</button>
+</div>
+
+<div id="chat-messages" class="chat-container"></div>
+
+<div class="form-group chat-input-area">
+<input type="text" id="chat-input"
+placeholder="Scrivi un messaggio o la descrizione di un'immagine..."
+onkeypress="handleChatKeypress(event)">
+<button class="btn" onclick="sendMessage()">Invia</button>
+<button class="btn secondary" onclick="generateImage()">Immagine</button>
+</div>
+
+<div class="usage-info">
+<p id="msg-remaining" class="small-text"></p>
+<p id="img-remaining" class="small-text"></p>
+<p id="history-warning" class="small-text"></p>
+</div>
+</div>
+</div>
+</div>
+</div>
 
         <!-- Settings -->
         <div id="settings-section" class="card hidden">
@@ -481,21 +560,22 @@ body {
             }
             
             try {
-                const result = await apiCall('register', { name, email, password });
-                
-                if (result.success) {
-                    showAlert('Registrazione completata! Effettua il login.', 'success');
-                    showLogin();
-                    // Clear form
-                    document.getElementById('reg-name').value = '';
-                    document.getElementById('reg-email').value = '';
-                    document.getElementById('reg-password').value = '';
-                } else {
-                    showAlert(result.message || 'Errore durante la registrazione', 'error');
-                }
-            } catch (error) {
-                showAlert('Errore durante la registrazione', 'error');
-            }
+const result = await apiCall('register', { name, email, password });
+
+if (result.success) {
+showAlert('Registrazione completata! Ti abbiamo inviato un codice OTP via email per attivare il tuo account.', 'success');
+
+// Salva l'email per precompilarla nella pagina verify
+localStorage.setItem('pendingEmail', email);
+
+// Reindirizza alla pagina di verifica OTP
+window.location.href = 'verify.html';
+} else {
+showAlert(result.message || 'Errore durante la registrazione', 'error');
+}
+} catch (error) {
+showAlert('Errore durante la registrazione', 'error');
+}
         }
 
         async function logout() {
@@ -589,6 +669,7 @@ body {
 
         // Bot management functions
         async function loadBots() {
+                document.getElementById('chat-interface').classList.add('hidden');
             try {
                 const result = await apiCall('getBots');
                 
@@ -686,7 +767,7 @@ body {
                 if (result.success) {
                     currentBot = result.bot;
                     
-                    document.getElementById('chatbots-section').classList.add('hidden');
+                    //document.getElementById('chatbots-section').classList.add('hidden');
                     document.getElementById('chat-interface').classList.remove('hidden');
                     document.getElementById('chat-bot-name').textContent = currentBot.name;
                     
@@ -810,11 +891,10 @@ body {
         }
 
         async function generateImage() {
-            const prompt = prompt('Inserisci la descrizione dell\'immaggine da generare:');
+            const prompt = document.getElementById('chat-input').value;
             
-            if (!prompt || !prompt.trim()) return;
-            
-            if (prompt.length > 10000) {
+                       
+            if (prompt.length > 200) {
                 showAlert('Il prompt non può superare i 10000 caratteri', 'error');
                 return;
             }
