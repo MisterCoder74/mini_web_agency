@@ -7,7 +7,8 @@ ini_set('error_log', __DIR__ . '/error.log');
 
 session_start();
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+// CORS security: Remove wildcard, allow only same origin
+header('Access-Control-Allow-Origin: same-origin');
 header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
@@ -20,13 +21,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 $input = json_decode(file_get_contents('php://input'), true);
 $action = $input['action'] ?? '';
 
-// Data files
-$usersFile = 'data/users.json';
+// Data files - use relative paths
+$usersFile = './data/users.json';
 
 
 // Ensure data directory exists
-if (!file_exists('data')) {
-    mkdir('data', 0755, true);
+if (!file_exists('./data')) {
+    mkdir('./data', 0755, true);
 }
 
 // Initialize files if they don't exist
@@ -35,7 +36,184 @@ if (!file_exists($usersFile)) {
 }
 
 
-// Helper functions
+// ============================================================================
+// SANITIZATION & VALIDATION HELPERS
+// ============================================================================
+
+/**
+ * Sanitize user input - trim and escape HTML special characters
+ */
+function sanitizeInput($input) {
+    if (is_array($input)) {
+        return array_map('sanitizeInput', $input);
+    }
+    $input = trim($input);
+    $input = htmlspecialchars($input, ENT_QUOTES, 'UTF-8');
+    return $input;
+}
+
+/**
+ * Validate email format
+ */
+function validateEmail($email) {
+    $email = trim($email);
+    if (empty($email)) {
+        return false;
+    }
+    // Use filter_var for validation, also check for basic regex pattern
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return false;
+    }
+    // Additional check for common email patterns
+    return preg_match('/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $email) === 1;
+}
+
+/**
+ * Validate password strength
+ */
+function validatePassword($password) {
+    if (empty($password)) {
+        return false;
+    }
+    if (strlen($password) < 8) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Validate bot name (max 100 characters)
+ */
+function validateBotName($name) {
+    $name = sanitizeInput($name);
+    if (empty(trim($name))) {
+        return false;
+    }
+    if (strlen($name) > 100) {
+        return false;
+    }
+    return $name;
+}
+
+/**
+ * Validate bot personality (max 5000 characters)
+ */
+function validateBotPersonality($personality) {
+    $personality = sanitizeInput($personality);
+    if (empty(trim($personality))) {
+        return false;
+    }
+    if (strlen($personality) > 5000) {
+        return false;
+    }
+    return $personality;
+}
+
+/**
+ * Validate message content (max 10000 characters)
+ */
+function validateMessage($message) {
+    $message = sanitizeInput($message);
+    if (empty(trim($message))) {
+        return false;
+    }
+    if (strlen($message) > 10000) {
+        return false;
+    }
+    return $message;
+}
+
+/**
+ * Validate conversation history
+ */
+function validateHistory($history) {
+    if (!is_array($history)) {
+        return [];
+    }
+    
+    $validated = [];
+    foreach ($history as $entry) {
+        if (!isset($entry['role']) || !isset($entry['content'])) {
+            continue;
+        }
+        $role = sanitizeInput($entry['role']);
+        $content = sanitizeInput($entry['content']);
+        
+        // Only allow valid roles
+        if (!in_array($role, ['user', 'assistant', 'system'])) {
+            continue;
+        }
+        
+        // Limit content length
+        if (strlen($content) > 10000) {
+            $content = substr($content, 0, 10000);
+        }
+        
+        $validated[] = [
+            'role' => $role,
+            'content' => $content
+        ];
+    }
+    
+    return $validated;
+}
+
+
+// ============================================================================
+// FILE LOCKING MECHANISM
+// ============================================================================
+
+/**
+ * Acquire exclusive lock on file
+ */
+function acquireLock($filePath) {
+    $fp = fopen($filePath, 'c+');
+    if (!$fp) {
+        return false;
+    }
+    
+    if (!flock($fp, LOCK_EX)) {
+        fclose($fp);
+        return false;
+    }
+    
+    return $fp;
+}
+
+/**
+ * Release lock and close file handle
+ */
+function releaseLock($fp) {
+    if ($fp) {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
+}
+
+/**
+ * Execute function with file lock
+ */
+function withLock($filePath, $callback) {
+    $fp = acquireLock($filePath);
+    if (!$fp) {
+        return ['success' => false, 'message' => 'Impossibile acquisire lock sul file'];
+    }
+    
+    try {
+        $result = $callback($fp);
+        releaseLock($fp);
+        return $result;
+    } catch (Exception $e) {
+        releaseLock($fp);
+        throw $e;
+    }
+}
+
+
+// ============================================================================
+// USER DATA FUNCTIONS (with file locking)
+// ============================================================================
+
 function loadUsers() {
     global $usersFile;
     $data = file_get_contents($usersFile);
@@ -47,6 +225,22 @@ function saveUsers($users) {
     return file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
 }
 
+function loadUsersWithLock() {
+    return withLock($usersFile, function($fp) {
+        global $usersFile;
+        $data = file_get_contents($usersFile);
+        $users = json_decode($data, true) ?: [];
+        return ['success' => true, 'users' => $users, 'fp' => $fp];
+    });
+}
+
+function saveUsersWithLock($users) {
+    global $usersFile;
+    return withLock($usersFile, function($fp) use ($users) {
+        file_put_contents($usersFile, json_encode($users, JSON_PRETTY_PRINT));
+        return ['success' => true];
+    });
+}
 
 function findUserById($userId) {
     $users = loadUsers();
@@ -69,34 +263,44 @@ function findUserByEmail($email) {
 }
 
 function updateUser($userData) {
-    $users = loadUsers();
+    $result = loadUsersWithLock();
+    if (!$result['success']) {
+        return false;
+    }
+    
+    $users = $result['users'];
+    $fp = $result['fp'];
+    
     for ($i = 0; $i < count($users); $i++) {
         if ($users[$i]['id'] === $userData['id']) {
             $users[$i] = $userData;
             saveUsers($users);
+            releaseLock($fp);
             return true;
         }
     }
+    
+    releaseLock($fp);
     return false;
 }
 
 function resetUsageIfNeeded(&$user) {
-$today = date('Y-m-d');
-$currentMonth = date('Y-m');
-
-// Reset giornaliero immagini
-if (!isset($user['usage']['lastReset']) || $user['usage']['lastReset'] !== $today) {
-$user['usage']['images'] = 0;
-$user['usage']['lastReset'] = $today;
-}
-
-// Reset mensile messaggi
-if (!isset($user['usage']['lastMessageReset']) || substr($user['usage']['lastMessageReset'], 0, 7) !== $currentMonth) {
-$user['usage']['messages'] = 0;
-$user['usage']['lastMessageReset'] = $today;
-}
-
-updateUser($user);
+    $today = date('Y-m-d');
+    $currentMonth = date('Y-m');
+    
+    // Reset giornaliero immagini
+    if (!isset($user['usage']['lastReset']) || $user['usage']['lastReset'] !== $today) {
+        $user['usage']['images'] = 0;
+        $user['usage']['lastReset'] = $today;
+    }
+    
+    // Reset mensile messaggi
+    if (!isset($user['usage']['lastMessageReset']) || substr($user['usage']['lastMessageReset'], 0, 7) !== $currentMonth) {
+        $user['usage']['messages'] = 0;
+        $user['usage']['lastMessageReset'] = $today;
+    }
+    
+    updateUser($user);
 }
 
 function getPlanLimits($plan) {
@@ -109,14 +313,14 @@ function getPlanLimits($plan) {
 }
 
 function getHistoryLimit($plan) {
-switch ($plan) {
-case 'premium':
-return 100;
-case 'basic':
-return 50;
-default:
-return 20;
-}
+    switch ($plan) {
+        case 'premium':
+            return 100;
+        case 'basic':
+            return 50;
+        default:
+            return 20;
+    }
 }
 
 function canSendMessage($user) {
@@ -134,12 +338,19 @@ function generateId() {
     return uniqid('', true);
 }
 
-// OpenAI API call
-function callOpenAI($message, $personality = '', $model = 'gpt-4o-mini') {
-    // Get API key from user settings or global settings
-    $user = findUserById($_SESSION['user_id']);
-    $apiKey = $user['settings']['openaiKey'] ?? '';
-    
+// ============================================================================
+// OPENAI API FUNCTIONS (apiKey passed from client)
+// ============================================================================
+
+/**
+ * Call OpenAI Chat Completions API
+ * @param string $message User message
+ * @param string $personality Bot personality
+ * * @param array $history Full conversation history
+ * @param string $model Model to use
+ * @param string $apiKey OpenAI API key from client
+ */
+function callOpenAI($message, $personality = '', $history = [], $model = 'gpt-4o-mini', $apiKey = '') {
     if (empty($apiKey)) {
         return "Errore: API Key OpenAI non configurata. Vai nelle impostazioni per configurarla.";
     }
@@ -154,7 +365,15 @@ function callOpenAI($message, $personality = '', $model = 'gpt-4o-mini') {
         ];
     }
     
-    // Add user message
+    // Add conversation history (validated and sanitized)
+    foreach ($history as $entry) {
+        $messages[] = [
+            'role' => $entry['role'],
+            'content' => $entry['content']
+        ];
+    }
+    
+    // Add current user message
     $messages[] = [
         'role' => 'user',
         'content' => $message
@@ -194,11 +413,12 @@ function callOpenAI($message, $personality = '', $model = 'gpt-4o-mini') {
     return $result['choices'][0]['message']['content'] ?? 'Risposta non disponibile';
 }
 
-function callDallE($prompt) {
-    // Get API key from user settings
-    $user = findUserById($_SESSION['user_id']);
-    $apiKey = $user['settings']['openaiKey'] ?? '';
-    
+/**
+ * Call DALL-E Image Generation API
+ * @param string $prompt Image prompt
+ * @param string $apiKey OpenAI API key from client
+ */
+function callDallE($prompt, $apiKey = '') {
     if (empty($apiKey)) {
         return ['error' => 'API Key OpenAI non configurata'];
     }
@@ -238,13 +458,19 @@ function callDallE($prompt) {
     return ['url' => $result['data'][0]['url'] ?? null];
 }
 
-// API Routes
+
+// ============================================================================
+// API ROUTES
+// ============================================================================
+
 switch ($action) {
     case 'checkAuth':
         if (isset($_SESSION['user_id'])) {
             $user = findUserById($_SESSION['user_id']);
             if ($user) {
                 resetUsageIfNeeded($user);
+                // Don't send settings (which may contain sensitive data) to client
+                unset($user['settings']);
                 echo json_encode(['success' => true, 'user' => $user]);
             } else {
                 echo json_encode(['success' => false]);
@@ -255,26 +481,49 @@ switch ($action) {
         break;
 
     case 'register':
-        $name = $input['name'] ?? '';
-        $email = $input['email'] ?? '';
-        $password = $input['password'] ?? '';
+        $name = sanitizeInput($input['name'] ?? '');
+        $email = sanitizeInput($input['email'] ?? '');
+        $password = $input['password'] ?? ''; // Don't sanitize password, only validate
         
+        // Validate all fields
         if (empty($name) || empty($email) || empty($password)) {
             echo json_encode(['success' => false, 'message' => 'Tutti i campi sono obbligatori']);
             break;
         }
         
+        // Validate email format
+        if (!validateEmail($email)) {
+            echo json_encode(['success' => false, 'message' => 'Formato email non valido']);
+            break;
+        }
+        
+        // Validate password strength
+        if (!validatePassword($password)) {
+            echo json_encode(['success' => false, 'message' => 'La password deve essere di almeno 8 caratteri']);
+            break;
+        }
+        
+        // Check if email already exists
         if (findUserByEmail($email)) {
             echo json_encode(['success' => false, 'message' => 'Email già registrata']);
             break;
         }
         
-        $users = loadUsers();
+        // Load users with lock and save new user
+        $result = loadUsersWithLock();
+        if (!$result['success']) {
+            echo json_encode(['success' => false, 'message' => 'Errore durante la registrazione']);
+            break;
+        }
+        
+        $users = $result['users'];
+        $fp = $result['fp'];
+        
         $newUser = [
             'id' => generateId(),
             'name' => $name,
             'email' => $email,
-            'password' => $password,
+            'password' => password_hash($password, PASSWORD_DEFAULT), // Secure password hashing
             'plan' => 'free',
             'usage' => [
                 'messages' => 0,
@@ -287,12 +536,13 @@ switch ($action) {
         
         $users[] = $newUser;
         saveUsers($users);
+        releaseLock($fp);
         
         echo json_encode(['success' => true, 'message' => 'Registrazione completata']);
         break;
 
     case 'login':
-        $email = $input['email'] ?? '';
+        $email = sanitizeInput($input['email'] ?? '');
         $password = $input['password'] ?? '';
         
         if (empty($email) || empty($password)) {
@@ -302,15 +552,15 @@ switch ($action) {
         
         $user = findUserByEmail($email);
         
-        // Confronto diretto delle password in chiaro
-    if ($user && $user['password'] === $password) {
-        $_SESSION['user_id'] = $user['id'];
-        unset($user['password']); // Non inviare la password al client
-        resetUsageIfNeeded($user);
-        echo json_encode(['success' => true, 'user' => $user]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Credenziali non valide']);
-    }
+        // Use password_verify for secure password comparison
+        if ($user && password_verify($password, $user['password'])) {
+            $_SESSION['user_id'] = $user['id'];
+            unset($user['password']); // Don't send password to client
+            resetUsageIfNeeded($user);
+            echo json_encode(['success' => true, 'user' => $user]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Credenziali non valide']);
+        }
         break;
 
     case 'logout':
@@ -324,7 +574,7 @@ switch ($action) {
             break;
         }
         
-        $plan = $input['plan'] ?? '';
+        $plan = sanitizeInput($input['plan'] ?? '');
         $allowedPlans = ['basic', 'premium'];
         
         if (!in_array($plan, $allowedPlans)) {
@@ -350,13 +600,23 @@ switch ($action) {
             break;
         }
         
-        $name = $input['name'] ?? '';
-        $personality = $input['personality'] ?? '';
-        $model = $input['model'] ?? 'gpt-3.5-turbo';
-        
-        if (empty($name) || empty($personality)) {
-            echo json_encode(['success' => false, 'message' => 'Nome e personalità richiesti']);
+        // Validate and sanitize bot name
+        $name = validateBotName($input['name'] ?? '');
+        if ($name === false) {
+            echo json_encode(['success' => false, 'message' => 'Nome bot non valido (max 100 caratteri)']);
             break;
+        }
+        
+        // Validate and sanitize bot personality
+        $personality = validateBotPersonality($input['personality'] ?? '');
+        if ($personality === false) {
+            echo json_encode(['success' => false, 'message' => 'Personalità non valida (max 5000 caratteri)']);
+            break;
+        }
+        
+        $model = sanitizeInput($input['model'] ?? 'gpt-3.5-turbo');
+        if (!in_array($model, ['gpt-3.5-turbo', 'gpt-4.1-nano'])) {
+            $model = 'gpt-3.5-turbo';
         }
         
         $user = findUserById($_SESSION['user_id']);
@@ -401,7 +661,7 @@ switch ($action) {
             break;
         }
         
-        $botId = $input['botId'] ?? '';
+        $botId = sanitizeInput($input['botId'] ?? '');
         if (empty($botId)) {
             echo json_encode(['success' => false, 'message' => 'Bot ID richiesto']);
             break;
@@ -435,7 +695,7 @@ switch ($action) {
             break;
         }
         
-        $botId = $input['botId'] ?? '';
+        $botId = sanitizeInput($input['botId'] ?? '');
         if (empty($botId)) {
             echo json_encode(['success' => false, 'message' => 'Bot ID richiesto']);
             break;
@@ -474,12 +734,18 @@ switch ($action) {
             break;
         }
         
-        $botId = $input['botId'] ?? '';
-        $message = $input['message'] ?? '';
-        $history = $input['history'] ?? [];
+        $botId = sanitizeInput($input['botId'] ?? '');
+        $message = validateMessage($input['message'] ?? '');
+        $history = validateHistory($input['history'] ?? []);
+        $apiKey = sanitizeInput($input['apiKey'] ?? '');
         
-        if (empty($botId) || empty($message)) {
+        if (empty($botId) || $message === false) {
             echo json_encode(['success' => false, 'message' => 'Bot ID e messaggio richiesti']);
+            break;
+        }
+        
+        if (empty($apiKey)) {
+            echo json_encode(['success' => false, 'message' => 'API Key OpenAI richiesta']);
             break;
         }
         
@@ -510,42 +776,95 @@ switch ($action) {
             break;
         }
         
-        // Generate response using real OpenAI API
-        $response = callOpenAI($message, $bot['personality'], $bot['model']);
-
-        // Add assistant reply to history before saving
-        $history[] = [
-        'role' => 'assistant',
-        'content' => $response
-        ];        
-
-        // Calcola limite in base al piano dell'utente
-        $maxMessages = getHistoryLimit($user['plan']);
-                
-        // Verifica se siamo vicini alla saturazione (solo per premium)
-        $nearLimit = false;
-        if ($user['plan'] === 'premium' && count($history) >= ($maxMessages - 4)) {
-        $nearLimit = true;
-        }               
-
-        // Mantieni solo la parte finale della history
-        if (count($history) > $maxMessages) {
-        $history = array_slice($history, -$maxMessages);
+        // Get personality and model
+        $personality = $bot['personality'] ?? '';
+        $model = $bot['model'] ?? 'gpt-4o-mini';
+        
+        // Build full conversation history from server storage + client history
+        $fullHistory = [];
+        if (isset($bot['conversations']) && is_array($bot['conversations'])) {
+            $fullHistory = $bot['conversations'];
         }
-                
-        // Update conversation history
-        $user['bots'][$botIndex]['conversations'] = $history;
+        
+        // Merge with client history (client sends recent messages that might have been missed)
+        $existingIds = [];
+        foreach ($fullHistory as $entry) {
+            if (isset($entry['id'])) {
+                $existingIds[] = $entry['id'];
+            }
+        }
+        
+        foreach ($history as $entry) {
+            if (!isset($entry['id']) || !in_array($entry['id'], $existingIds)) {
+                $fullHistory[] = $entry;
+            }
+        }
+        
+        // Call OpenAI API with apiKey from client
+        $response = callOpenAI($message, $personality, $fullHistory, $model, $apiKey);
+        
+        // Check if it's an error
+        if (strpos($response, 'Errore') !== false) {
+            echo json_encode(['success' => false, 'message' => $response]);
+            break;
+        }
         
         // Update usage
         $user['usage']['messages']++;
         updateUser($user);
         
+        // Update bot with new conversation - with file locking
+        $result = loadUsersWithLock();
+        if (!$result['success']) {
+            echo json_encode(['success' => false, 'message' => 'Errore nel salvataggio']);
+            break;
+        }
+        
+        $users = $result['users'];
+        $fp = $result['fp'];
+        
+        for ($i = 0; $i < count($users); $i++) {
+            if ($users[$i]['id'] === $user['id']) {
+                foreach ($users[$i]['bots'] as &$userBot) {
+                    if ($userBot['id'] === $botId) {
+                        // Add user message to conversations
+                        $userBot['conversations'][] = [
+                            'id' => generateId(),
+                            'role' => 'user',
+                            'content' => $message,
+                            'timestamp' => date('Y-m-d H:i:s')
+                        ];
+                        // Add assistant response to conversations
+                        $userBot['conversations'][] = [
+                            'id' => generateId(),
+                            'role' => 'assistant',
+                            'content' => $response,
+                            'timestamp' => date('Y-m-d H:i:s')
+                        ];
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        
+        saveUsers($users);
+        releaseLock($fp);
+        
+        // Get updated bot
+        $user = findUserById($_SESSION['user_id']);
+        $updatedBot = null;
+        foreach ($user['bots'] as $userBot) {
+            if ($userBot['id'] === $botId) {
+                $updatedBot = $userBot;
+                break;
+            }
+        }
+        
         echo json_encode([
-        'success' => true,
-        'response' => $response,
-        'usage' => $user['usage'],
-        'conversation' => $user['bots'][$botIndex]['conversations'],
-        'nearLimit' => $nearLimit // ⚠️ obbligatorio
+            'success' => true, 
+            'response' => $response,
+            'bot' => $updatedBot
         ]);
         break;
 
@@ -555,11 +874,17 @@ switch ($action) {
             break;
         }
         
-        $botId = $input['botId'] ?? '';
-        $prompt = $input['prompt'] ?? '';
+        $prompt = sanitizeInput($input['prompt'] ?? '');
+        $botId = sanitizeInput($input['botId'] ?? '');
+        $apiKey = sanitizeInput($input['apiKey'] ?? '');
         
-        if (empty($botId) || empty($prompt)) {
-            echo json_encode(['success' => false, 'message' => 'Bot ID e prompt richiesti']);
+        if (empty($prompt)) {
+            echo json_encode(['success' => false, 'message' => 'Prompt richiesto']);
+            break;
+        }
+        
+        if (empty($apiKey)) {
+            echo json_encode(['success' => false, 'message' => 'API Key OpenAI richiesta']);
             break;
         }
         
@@ -574,54 +899,64 @@ switch ($action) {
             break;
         }
         
-        // Generate image using real DALL-E API
-        $imageResult = callDallE($prompt);
+        // Call DALL-E API with apiKey from client
+        $result = callDallE($prompt, $apiKey);
         
-        if (isset($imageResult['error'])) {
-            echo json_encode(['success' => false, 'message' => $imageResult['error']]);
+        if (isset($result['error'])) {
+            echo json_encode(['success' => false, 'message' => $result['error']]);
             break;
         }
-        
-        $imageUrl = $imageResult['url'];
         
         // Update usage
         $user['usage']['images']++;
         updateUser($user);
-
-        echo json_encode([
-        'success' => true,
-        'imageUrl' => $imageUrl,
-        'usage' => $user['usage'] // <-- aggiunto
-        ]);
+        
+        echo json_encode(['success' => true, 'url' => $result['url']]);
         break;
 
-    case 'saveSettings':
+    case 'deleteAccount':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
             break;
         }
         
-        $openaiKey = $input['openaiKey'] ?? '';
+        $userId = $_SESSION['user_id'];
         
-        if (empty($openaiKey)) {
-            echo json_encode(['success' => false, 'message' => 'API Key richiesta']);
+        $result = loadUsersWithLock();
+        if (!$result['success']) {
+            echo json_encode(['success' => false, 'message' => 'Errore durante l\'eliminazione']);
             break;
         }
         
-        $user = findUserById($_SESSION['user_id']);
-        if (!$user) {
+        $users = $result['users'];
+        $fp = $result['fp'];
+        
+        $newUsers = [];
+        $found = false;
+        foreach ($users as $user) {
+            if ($user['id'] !== $userId) {
+                $newUsers[] = $user;
+            } else {
+                $found = true;
+            }
+        }
+        
+        if (!$found) {
+            releaseLock($fp);
             echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
             break;
         }
         
-        $user['settings']['openaiKey'] = $openaiKey;
-        updateUser($user);
+        $users = $newUsers;
+        saveUsers($users);
+        releaseLock($fp);
         
-        echo json_encode(['success' => true, 'message' => 'Impostazioni salvate']);
+        session_destroy();
+        
+        echo json_encode(['success' => true, 'message' => 'Account eliminato']);
         break;
 
     default:
         echo json_encode(['success' => false, 'message' => 'Azione non valida']);
         break;
 }
-?>

@@ -161,19 +161,30 @@ body {
   pointer-events: none;
 }
 .reglink {
-	color: #04be6d;
-	text-decoration: none;
+    color: #04be6d;
+    text-decoration: none;
 }           
 .reglink:hover {
-	color: #000000;
-	
-}  
-            
+    color: #000000;
+    
+}              
 .small-text {
-font-size: .75rem;
-color: rebeccapurple;        
-            }            
-            
+    font-size: .75rem;
+    color: rebeccapurple;        
+}
+.warning-text {
+    font-size: .875rem;
+    color: #f59e0b;
+    margin-top: 0.5rem;
+}
+.api-key-warning {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+}            
     </style>
 </head>
 <body>
@@ -199,7 +210,7 @@ color: rebeccapurple;
         </div>
 
         <!-- Login Form -->
-        <div id="login-section" class="card">
+        <div id="login-section" class="card hidden">
             <h2>Accedi</h2>
             <div class="form-group">
                 <label>Email:</label>
@@ -227,6 +238,7 @@ color: rebeccapurple;
             <div class="form-group">
                 <label>Password:</label>
                 <input type="password" id="reg-password" required>
+                <small style="color: #6b7280;">Minimo 8 caratteri</small>
             </div>
             <button class="btn" onclick="register()">Registrati</button>
             <a href="#" onclick="showLogin()" class="reglink">Hai già un account?</a>
@@ -281,11 +293,11 @@ color: rebeccapurple;
                 <h3>Crea Nuovo ChatBot</h3>
                 <div class="form-group">
                     <label>Nome Bot:</label>
-                    <input type="text" id="bot-name" required>
+                    <input type="text" id="bot-name" required maxlength="100">
                 </div>
                 <div class="form-group">
                     <label>Personalità/Ruolo:</label>
-                    <textarea id="bot-personality" placeholder="Es: Sei un assistente esperto in cucina italiana..."></textarea>
+                    <textarea id="bot-personality" placeholder="Es: Sei un assistente esperto in cucina italiana..." maxlength="5000"></textarea>
                 </div>
                 <div class="form-group">
                     <label>Modello:</label>
@@ -321,6 +333,9 @@ color: rebeccapurple;
         <!-- Settings -->
         <div id="settings-section" class="card hidden">
             <h3>Impostazioni API</h3>
+            <div class="api-key-warning">
+                <strong>Nota:</strong> La tua API Key viene salvata solo nel browser locale (localStorage) e non viene mai inviata al server.
+            </div>
             <div class="form-group">
                 <label>OpenAI API Key:</label>
                 <input type="password" id="openai-key" placeholder="sk-...">
@@ -334,16 +349,18 @@ color: rebeccapurple;
         let currentUser = null;
         let currentBot = null;
         let chatHistory = [];
+        let contextMemory = []; // Client-side context memory (max 50 messages)
+        const CONTEXT_MEMORY_LIMIT = 50;
         
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
             checkAuth();
         });
 
-        // API helper function
+        // API helper function - uses relative path
         async function apiCall(action, data = {}) {
             try {
-                const response = await fetch('api.php', {
+                const response = await fetch('./api.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -361,6 +378,36 @@ color: rebeccapurple;
                 showAlert('Errore di connessione al server', 'error');
                 throw error;
             }
+        }
+
+        // Get API key from localStorage
+        function getApiKey() {
+            return localStorage.getItem('chatbotHubApiKey') || '';
+        }
+
+        // Save API key to localStorage
+        function saveApiKey(apiKey) {
+            if (apiKey && apiKey.trim()) {
+                localStorage.setItem('chatbotHubApiKey', apiKey.trim());
+            } else {
+                localStorage.removeItem('chatbotHubApiKey');
+            }
+        }
+
+        // Check if API key is configured
+        function hasApiKey() {
+            return !!getApiKey();
+        }
+
+        // Show API key warning in chat interface
+        function showApiKeyWarning() {
+            const warning = document.getElementById('history-warning');
+            if (!hasApiKey()) {
+                warning.innerHTML = '<span class="warning-text">⚠️ API Key non configurata. Vai in "Configurazione" per inserire la tua OpenAI API Key.</span>';
+                return true;
+            }
+            warning.innerHTML = '';
+            return false;
         }
 
         // Authentication functions
@@ -428,6 +475,11 @@ color: rebeccapurple;
                 return;
             }
             
+            if (password.length < 8) {
+                showAlert('La password deve essere di almeno 8 caratteri', 'error');
+                return;
+            }
+            
             try {
                 const result = await apiCall('register', { name, email, password });
                 
@@ -454,6 +506,9 @@ color: rebeccapurple;
             }
             
             currentUser = null;
+            currentBot = null;
+            chatHistory = [];
+            contextMemory = [];
             showGuestInterface();
         }
 
@@ -500,38 +555,35 @@ color: rebeccapurple;
             const imagePercent = currentUser.plan === 'premium' ? 0 : (currentUser.usage.images / limits.images) * 100;
             
             document.getElementById('usage-stats').innerHTML = `
-                <h4>Utilizzo</h4>
-                <p>Messaggi al mese: ${currentUser.usage.messages}/${currentUser.plan === 'premium' ? '∞' : limits.messages}</p>
-                <div class="usage-bar"><div class="usage-fill" style="width: ${Math.min(messagePercent, 100)}%"></div></div>
-                <p>Immagini al giorno: ${currentUser.usage.images}/${currentUser.plan === 'premium' ? '∞' : limits.images}</p>
-                <div class="usage-bar"><div class="usage-fill" style="width: ${Math.min(imagePercent, 100)}%"></div></div>
+                <p>Messaggi usati: ${currentUser.usage.messages}${currentUser.plan !== 'premium' ? '/' + limits.messages : ''}</p>
+                <div class="usage-bar"><div class="usage-fill" style="width: ${messagePercent}%"></div></div>
+                <p>Immagini generate oggi: ${currentUser.usage.images}${currentUser.plan !== 'premium' ? '/' + limits.images : ''}</p>
+                <div class="usage-bar"><div class="usage-fill" style="width: ${imagePercent}%"></div></div>
             `;
         }
 
         function getPlanLimits(plan) {
             const limits = {
-                free: { messages: 100, images: 3 },
-                basic: { messages: 5000, images: 10 },
-                premium: { messages: Infinity, images: Infinity }
+                'free': { messages: 100, images: 3, history: 20 },
+                'basic': { messages: 5000, images: 10, history: 50 },
+                'premium': { messages: Infinity, images: Infinity, history: 100 }
             };
-            return limits[plan] || limits.free;
+            return limits[plan] || limits['free'];
         }
 
         async function upgradePlan(plan) {
-            if (confirm(`Confermi l'upgrade al piano ${plan.toUpperCase()}?`)) {
-                try {
-                    const result = await apiCall('upgradePlan', { plan });
-                    
-                    if (result.success) {
-                        currentUser.plan = plan;
-                        showAlert(`Piano aggiornato a ${plan.toUpperCase()}!`, 'success');
-                        updateAccountInfo();
-                    } else {
-                        showAlert(result.message || 'Errore durante upgrade', 'error');
-                    }
-                } catch (error) {
-                    showAlert('Errore durante upgrade', 'error');
+            try {
+                const result = await apiCall('upgradePlan', { plan });
+                
+                if (result.success) {
+                    currentUser.plan = plan;
+                    showDashboard();
+                    showAlert('Piano aggiornato con successo!', 'success');
+                } else {
+                    showAlert(result.message || 'Errore durante l\'upgrade', 'error');
                 }
+            } catch (error) {
+                showAlert('Errore durante l\'upgrade', 'error');
             }
         }
 
@@ -541,26 +593,25 @@ color: rebeccapurple;
                 const result = await apiCall('getBots');
                 
                 if (result.success) {
-                    currentUser.bots = result.bots;
                     const botsList = document.getElementById('bots-list');
                     
                     if (result.bots.length === 0) {
-                        botsList.innerHTML = '<p>Nessun bot creato ancora.</p>';
-                        return;
+                        botsList.innerHTML = '<p style="margin-top: 1rem;">Nessun bot creato. Crea il tuo primo chatbot!</p>';
+                    } else {
+                        botsList.innerHTML = result.bots.map(bot => `
+                            <div class="card" style="margin-top: 1rem;">
+                                <h4>${escapeHtml(bot.name)}</h4>
+                                <p>Modello: ${bot.model}</p>
+                                <p>Creato: ${bot.created_at}</p>
+                                <p>Conversazioni salvate: ${bot.conversations ? bot.conversations.length : 0}</p>
+                                <button class="btn" onclick="openBot('${bot.id}')">Apri Chat</button>
+                                <button class="btn danger" onclick="deleteBot('${bot.id}')">Elimina</button>
+                            </div>
+                        `).join('');
                     }
-                    
-                    botsList.innerHTML = result.bots.map(bot => `
-                        <div class="card" style="border-left: 1px solid black; margin-top: 12px;">
-                            <h3>${bot.name}</h3>
-                            <p style="margin: 8px 2px;"><strong>Personalità:</strong> ${bot.personality.substring(0, 120)}...</p>
-                            <p style="margin: 8px 2px;"><strong>Modello:</strong> ${bot.model}</p>
-                            <button class="btn" onclick="openChat('${bot.id}')">Chatta</button>
-                            <button class="btn danger" onclick="deleteBot('${bot.id}')">Elimina</button>
-                        </div>
-                    `).join('');
                 }
             } catch (error) {
-                showAlert('Errore nel caricamento bot', 'error');
+                showAlert('Errore nel caricamento dei bot', 'error');
             }
         }
 
@@ -570,15 +621,28 @@ color: rebeccapurple;
 
         function hideCreateBot() {
             document.getElementById('create-bot-form').classList.add('hidden');
+            document.getElementById('bot-name').value = '';
+            document.getElementById('bot-personality').value = '';
+            document.getElementById('bot-model').value = 'gpt-3.5-turbo';
         }
 
         async function createBot() {
-            const name = document.getElementById('bot-name').value;
-            const personality = document.getElementById('bot-personality').value;
+            const name = document.getElementById('bot-name').value.trim();
+            const personality = document.getElementById('bot-personality').value.trim();
             const model = document.getElementById('bot-model').value;
             
             if (!name || !personality) {
-                showAlert('Compila tutti i campi', 'error');
+                showAlert('Nome e personalità sono richiesti', 'error');
+                return;
+            }
+            
+            if (name.length > 100) {
+                showAlert('Il nome del bot non può superare i 100 caratteri', 'error');
+                return;
+            }
+            
+            if (personality.length > 5000) {
+                showAlert('La personalità non può superare i 5000 caratteri', 'error');
                 return;
             }
             
@@ -586,76 +650,72 @@ color: rebeccapurple;
                 const result = await apiCall('createBot', { name, personality, model });
                 
                 if (result.success) {
+                    showAlert('Bot creato con successo!', 'success');
                     hideCreateBot();
                     loadBots();
-                    showAlert('Bot creato con successo!', 'success');
-                    
-                    // Clear form
-                    document.getElementById('bot-name').value = '';
-                    document.getElementById('bot-personality').value = '';
                 } else {
-                    showAlert(result.message || 'Errore nella creazione bot', 'error');
+                    showAlert(result.message || 'Errore nella creazione del bot', 'error');
                 }
             } catch (error) {
-                showAlert('Errore nella creazione bot', 'error');
+                showAlert('Errore nella creazione del bot', 'error');
             }
         }
 
         async function deleteBot(botId) {
-            if (confirm('Sei sicuro di voler eliminare questo bot?')) {
-                try {
-                    const result = await apiCall('deleteBot', { botId });
-                    
-                    if (result.success) {
-                        loadBots();
-                        showAlert('Bot eliminato', 'success');
-                    } else {
-                        showAlert(result.message || 'Errore eliminazione bot', 'error');
-                    }
-                } catch (error) {
-                    showAlert('Errore eliminazione bot', 'error');
+            if (!confirm('Sei sicuro di voler eliminare questo bot?')) return;
+            
+            try {
+                const result = await apiCall('deleteBot', { botId });
+                
+                if (result.success) {
+                    showAlert('Bot eliminato', 'success');
+                    loadBots();
+                } else {
+                    showAlert(result.message || 'Errore nell\'eliminazione', 'error');
                 }
+            } catch (error) {
+                showAlert('Errore nell\'eliminazione', 'error');
             }
         }
 
         // Chat functions
-        async function openChat(botId) {
+        async function openBot(botId) {
             try {
-                    
                 const result = await apiCall('getBot', { botId });
                 
                 if (result.success) {
                     currentBot = result.bot;
-                    document.getElementById('chat-bot-name').textContent = currentBot.name;
+                    
+                    document.getElementById('chatbots-section').classList.add('hidden');
                     document.getElementById('chat-interface').classList.remove('hidden');
-                    loadChatHistory();
+                    document.getElementById('chat-bot-name').textContent = currentBot.name;
+                    
+                    // Load full conversation history from server
+                    chatHistory = currentBot.conversations || [];
+                    
+                    // Load last 50 messages into contextMemory
+                    contextMemory = chatHistory.slice(-CONTEXT_MEMORY_LIMIT);
+                    
+                    renderMessages();
+                    updateChatInfo();
+                    showApiKeyWarning();
                 } else {
-                    showAlert('Errore apertura chat', 'error');
+                    showAlert(result.message || 'Errore nel caricamento del bot', 'error');
                 }
             } catch (error) {
-                showAlert('Errore apertura chat', 'error');
+                showAlert('Errore nel caricamento del bot', 'error');
             }
         }
 
-        function closeChatInterface() {
-            document.getElementById('chat-interface').classList.add('hidden');
-            currentBot = null;
-            chatHistory = [];
-        }
-
-        function loadChatHistory() {
-            const chatMessages = document.getElementById('chat-messages');
-            chatHistory = currentBot.conversations || [];
-            
-            chatMessages.innerHTML = chatHistory.map(msg => `
+        function renderMessages() {
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = contextMemory.map(msg => `
                 <div class="message ${msg.role}">
-                    <strong>${msg.role === 'user' ? 'Tu' : currentBot.name}:</strong>
-                    ${msg.content}
-                    ${msg.image ? `<img src="${msg.image}" class="image-preview" alt="Generated image">` : ''}
+                    <strong>${msg.role === 'user' ? 'Tu' : 'Bot'}:</strong>
+                    <div>${escapeHtml(msg.content)}</div>
                 </div>
             `).join('');
-            
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            container.scrollTop = container.scrollHeight;
         }
 
         function handleChatKeypress(event) {
@@ -664,207 +724,208 @@ color: rebeccapurple;
             }
         }
 
-async function sendMessage() {
-const input = document.getElementById('chat-input');
-const message = input.value.trim();
-if (!message) return;
-
-if (!canSendMessage()) {
-showAlert('Limite messaggi raggiunto per il tuo piano', 'error');
-return;
-}
-
-input.value = '';
-chatHistory.push({ role: 'user', content: message });
-updateChatDisplay();
-
-try {
-const result = await apiCall('sendMessage', {
-botId: currentBot.id,
-message: message,
-history: chatHistory
-});
-
-if (result.success) {
-// aggiorna la conversazione salvata dal server
-currentBot.conversations = result.conversation || [];
-chatHistory = currentBot.conversations;
-updateChatDisplay();
-
-if (result.usage) currentUser.usage = result.usage;
-updateUsageDisplay();
-
-// 👇 Avviso saturazione chat (solo premium)
-if (result.nearLimit && currentUser.plan === 'premium') {
-showHistoryWarning();
-} else {
-hideHistoryWarning();
-}
-} else {
-showAlert(result.message || 'Errore nella risposta del bot', 'error');
-}
-} catch (error) {
-showAlert('Errore nella risposta del bot', 'error');
-}
-} // ← chiusura corretta di sendMessage()
-
-        function showHistoryWarning() {
-const warn = document.getElementById('history-warning');
-if (warn) {
-warn.style.display = 'block';
-warn.style.color = 'orange';
-warn.innerHTML = `
-⚠️ La chat è quasi piena.
-<a href="#" onclick="downloadChatHistory()">Scarica la cronologia completa</a>
-prima che una parte venga rimossa.
-`;
-}
-}
-
-function hideHistoryWarning() {
-const warn = document.getElementById('history-warning');
-if (warn) {
-warn.innerHTML = ''; // svuota il testo
-warn.style.display = 'none'; // giusto per nasconderlo visivamente
-}
-}
-                
-        function downloadChatHistory() {
-        const data = JSON.stringify(chatHistory, null, 2);
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `chat_history_${currentBot.name || 'bot'}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        }                
-
-        async function generateImage() {
-            const prompt = document.getElementById('chat-input').value.trim() || 'A beautiful landscape';
-            const chatMessages = document.getElementById('chat-messages');    
-            chatMessages.innerHTML = "<i>Sto generando...</i>";
-            if (!canGenerateImage()) {
-                showAlert('Limite immagini raggiunto per il tuo piano', 'error');
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            if (message.length > 10000) {
+                showAlert('Il messaggio non può superare i 10000 caratteri', 'error');
                 return;
             }
             
-            document.getElementById('chat-input').value = '';
+            // Check for API key
+            if (!hasApiKey()) {
+                showAlert('API Key non configurata. Vai in "Configurazione" per inserire la tua OpenAI API Key.', 'error');
+                return;
+            }
+            
+            const apiKey = getApiKey();
+            input.value = '';
+            input.disabled = true;
+            
+            // Add user message to contextMemory
+            const userMessage = {
+                role: 'user',
+                content: message,
+                id: generateMessageId()
+            };
+            contextMemory.push(userMessage);
+            
+            // Keep contextMemory at max limit
+            if (contextMemory.length > CONTEXT_MEMORY_LIMIT) {
+                contextMemory = contextMemory.slice(-CONTEXT_MEMORY_LIMIT);
+            }
+            
+            renderMessages();
+            
+            try {
+                const result = await apiCall('sendMessage', {
+                    botId: currentBot.id,
+                    message: message,
+                    history: chatHistory, // Send full history to server
+                    apiKey: apiKey
+                });
+                
+                if (result.success) {
+                    // Add assistant response to contextMemory
+                    const botMessage = {
+                        role: 'assistant',
+                        content: result.response,
+                        id: generateMessageId()
+                    };
+                    contextMemory.push(botMessage);
+                    
+                    // Keep contextMemory at max limit
+                    if (contextMemory.length > CONTEXT_MEMORY_LIMIT) {
+                        contextMemory = contextMemory.slice(-CONTEXT_MEMORY_LIMIT);
+                    }
+                    
+                    // Update local bot data with new conversations
+                    currentBot = result.bot;
+                    chatHistory = currentBot.conversations || [];
+                    
+                    renderMessages();
+                    updateChatInfo();
+                } else {
+                    showAlert(result.message || 'Errore nell\'invio del messaggio', 'error');
+                    // Remove the user message from contextMemory if failed
+                    contextMemory.pop();
+                    renderMessages();
+                }
+            } catch (error) {
+                showAlert('Errore nell\'invio del messaggio', 'error');
+                // Remove the user message from contextMemory if failed
+                contextMemory.pop();
+                renderMessages();
+            } finally {
+                input.disabled = false;
+                input.focus();
+            }
+        }
+
+        async function generateImage() {
+            const prompt = prompt('Inserisci la descrizione dell\'immaggine da generare:');
+            
+            if (!prompt || !prompt.trim()) return;
+            
+            if (prompt.length > 10000) {
+                showAlert('Il prompt non può superare i 10000 caratteri', 'error');
+                return;
+            }
+            
+            // Check for API key
+            if (!hasApiKey()) {
+                showAlert('API Key non configurata. Vai in "Configurazione" per inserire la tua OpenAI API Key.', 'error');
+                return;
+            }
+            
+            const apiKey = getApiKey();
+            const chatContainer = document.getElementById('chat-messages');
+            chatContainer.classList.add('loading');
             
             try {
                 const result = await apiCall('generateImage', {
                     botId: currentBot.id,
-                    prompt: prompt
+                    prompt: prompt,
+                    apiKey: apiKey
                 });
                 
                 if (result.success) {
-                chatHistory.push({
-                role: 'assistant',
-                content: `Immagine generata per: "${prompt}"`,
-                image: result.imageUrl
-                });
-                updateChatDisplay();
-
-                if (result.usage) currentUser.usage = result.usage;
-                updateUsageDisplay();
+                    chatContainer.innerHTML += `
+                        <div class="message bot">
+                            <strong>Bot (Immagine):</strong>
+                            <div><img src="${result.url}" alt="Immagine generata" class="image-preview"></div>
+                            <div><a href="${result.url}" target="_blank">Apri immagine a schermo intero</a></div>
+                        </div>
+                    `;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    updateChatInfo();
                 } else {
-                    showAlert(result.message || 'Errore nella generazione immagine', 'error');
+                    showAlert(result.message || 'Errore nella generazione dell\'immaggine', 'error');
                 }
             } catch (error) {
-                showAlert('Errore nella generazione immagine', 'error');
+                showAlert('Errore nella generazione dell\'immaggine', 'error');
+            } finally {
+                chatContainer.classList.remove('loading');
             }
         }
 
-        function updateChatDisplay() {
-            loadChatHistory();
+        function closeChatInterface() {
+            currentBot = null;
+            chatHistory = [];
+            contextMemory = [];
+            document.getElementById('chat-interface').classList.add('hidden');
+            document.getElementById('chat-messages').innerHTML = '';
+            document.getElementById('chat-input').value = '';
+            showChatbots();
         }
 
-        // Usage checking functions
-        function canSendMessage() {
+        function updateChatInfo() {
+            if (!currentBot || !currentUser) return;
+            
             const limits = getPlanLimits(currentUser.plan);
-            return currentUser.plan === 'premium' || currentUser.usage.messages < limits.messages;
+            const remainingMessages = currentUser.plan === 'premium' ? 'Illimitati' : (limits.messages - currentUser.usage.messages);
+            const remainingImages = currentUser.plan === 'premium' ? 'Illimitate' : (limits.images - currentUser.usage.images);
+            
+            document.getElementById('msg-remaining').textContent = `Messaggi rimanenti: ${remainingMessages}`;
+            document.getElementById('img-remaining').textContent = `Immagini rimanenti: ${remainingImages}`;
+            
+            // Update history warning
+            const historyWarning = document.getElementById('history-warning');
+            if (currentUser.plan === 'free') {
+                historyWarning.textContent = 'Memoria di contesto limitata a 20 messaggi';
+            } else if (currentUser.plan === 'basic') {
+                historyWarning.textContent = 'Memoria di contesto: 50 messaggi';
+            }
+            
+            showApiKeyWarning();
         }
 
-        function canGenerateImage() {
-            const limits = getPlanLimits(currentUser.plan);
-            return currentUser.plan === 'premium' || currentUser.usage.images < limits.images;
+        function generateMessageId() {
+            return 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        // Settings functions
+        function showSettings() {
+            hideAllSections();
+            document.getElementById('settings-section').classList.remove('hidden');
+            
+            // Load API key from localStorage
+            const apiKey = getApiKey();
+            document.getElementById('openai-key').value = apiKey;
+        }
+
+        function saveSettings() {
+            const apiKey = document.getElementById('openai-key').value;
+            
+            // Save to localStorage (client-side only)
+            saveApiKey(apiKey);
+            
+            showAlert('Impostazioni salvate!', 'success');
         }
 
         // Utility functions
-        function showAlert(message, type = 'error') {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert ${type}`;
-            alertDiv.textContent = message;
+        function showAlert(message, type) {
+            const alert = document.createElement('div');
+            alert.className = `alert ${type}`;
+            alert.textContent = message;
             
-            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
+            const container = document.querySelector('.container');
+            container.insertBefore(alert, container.firstChild);
             
             setTimeout(() => {
-                alertDiv.remove();
+                alert.remove();
             }, 3000);
         }
-            // Settings open functions
-            function showSettings() {
-hideAllSections();
-document.getElementById('settings-section').classList.remove('hidden');
 
-leggiApiKey();                    
-                    
-}
-            
-async function leggiApiKey() {
-const keyField = document.getElementById('openai-key');
-// email o id dell’utente corrente (puoi modificarlo o leggerlo da localStorage)
-const currentEmail = currentUser.email;
-
-try {
-const response = await fetch('./data/users.json');
-if (!response.ok) {
-throw new Error(`Errore HTTP: ${response.status}`);
-}
-
-const data = await response.json();
-
-// trova l’utente corrispondente
-const utente = data.find(u => u.email === currentEmail);
-if (!utente) {
-throw new Error(`Utente con email "${currentEmail}" non trovato.`);
-}
-
-const key = utente.settings?.openaiKey;
-if (!key) {
-throw new Error('Proprietà "settings.openaiKey" non trovata nel file JSON.');
-}
-
-// Assegna la chiave letta all’input
-keyField.value = key;
-} catch (err) {
-console.error('Errore durante la lettura del file:', err.message);
-keyField.value = ''; // cancella o lascia vuoto in caso d’errore
-}
-}       
-
-function updateUsageDisplay() {
-const limits = getPlanLimits(currentUser.plan);
-
-const remainingMessages =
-currentUser.plan === 'premium'
-? '∞'
-: `${limits.messages - currentUser.usage.messages}/${limits.messages}`;
-
-const remainingImages =
-currentUser.plan === 'premium'
-? '∞'
-: `${limits.images - currentUser.usage.images}/${limits.images}`;
-
-document.getElementById('msg-remaining').textContent =
-`Messaggi mensili rimanenti: ${remainingMessages}`;
-
-document.getElementById('img-remaining').textContent =
-`Immagini giornaliere rimanenti: ${remainingImages}`;
-}
-            
-            
-        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
     </script>
 </body>
 </html>
