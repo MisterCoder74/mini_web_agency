@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manuale Utente - ChatBot Hub</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f5f5f5;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: #04be6d;
+            color: white;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .nav-menu {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            background: #000000;
+            color: #04be6d;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background: #04be6d;
+            color: white;
+            border: 1px solid black;
+        }
+        
+        .btn.secondary {
+            background: white;
+            color: #04be6d;
+            border: 1px solid #04be6d;
+        }
+        
+        .btn.secondary:hover {
+            background: #04be6d;
+            color: white;
+        }
+        
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+        
+        h2 {
+            color: #04be6d;
+            margin-bottom: 1.5rem;
+            font-size: 1.8rem;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0.5rem;
+        }
+        
+        h3 {
+            color: #2d3748;
+            margin: 1.5rem 0 1rem 0;
+            font-size: 1.3rem;
+        }
+        
+        h4 {
+            color: #4a5568;
+            margin: 1rem 0 0.5rem 0;
+            font-size: 1.1rem;
+        }
+        
+        p {
+            margin-bottom: 1rem;
+        }
+        
+        ol, ul {
+            margin: 1rem 0;
+            padding-left: 2rem;
+        }
+        
+        li {
+            margin-bottom: 0.5rem;
+        }
+        
+        code {
+            background: #f3f4f6;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        
+        .code-block {
+            background: #1f2937;
+            color: #f3f4f6;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        th {
+            background: #f9fafb;
+            color: #374151;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background: #f9fafb;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+        
+        .alert.info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .alert.warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .alert.tip {
+            background: #d1fae5;
+            color: #059669;
+        }
+        
+        .toc {
+            background: #f9fafb;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        
+        .toc h3 {
+            color: #04be6d;
+            margin-bottom: 1rem;
+        }
+        
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .toc li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .toc a {
+            color: #2d3748;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .toc a:hover {
+            color: #04be6d;
+        }
+        
+        .faq-item {
+            background: #f9fafb;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        
+        .faq-question {
+            font-weight: 600;
+            color: #2d3748;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .faq-answer {
+            margin-top: 1rem;
+            display: none;
+        }
+        
+        .faq-answer.active {
+            display: block;
+        }
+        
+        .faq-toggle {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .footer {
+            background: #04be6d;
+            color: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 2rem;
+            text-align: center;
+        }
+        
+        .footer a {
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .nav-menu {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Manuale Utente - ChatBot Hub</h1>
+            <p>Guida completa all'utilizzo della piattaforma</p>
+        </div>
+        
+        <!-- Navigation Menu -->
+        <div class="nav-menu">
+            <a href="index.html" class="btn secondary">Torna alla Dashboard</a>
+            <a href="#getting-started" class="btn">Inizia</a>
+            <a href="#api-config" class="btn">Configurazione API</a>
+            <a href="#chatbots" class="btn">Chatbots</a>
+            <a href="#chatting" class="btn">Chattare</a>
+        </div>
+        
+        <!-- Table of Contents -->
+        <div class="toc">
+            <h3>Indice</h3>
+            <ul>
+                <li><a href="#getting-started">1. Iniziare</a></li>
+                <li><a href="#api-config">2. Configurazione API</a></li>
+                <li><a href="#chatbots">3. Creare e Gestire Chatbots</a></li>
+                <li><a href="#chatting">4. Chattare con i Bots</a></li>
+                <li><a href="#image-generation">5. Generazione Immagini</a></li>
+                <li><a href="#plans">6. Piani e Sottoscrizioni</a></li>
+                <li><a href="#settings">7. Impostazioni e Profilo</a></li>
+                <li><a href="#faq">8. FAQ e Risoluzione Problemi</a></li>
+                <li><a href="#tips">9. Consigli e Best Practices</a></li>
+            </ul>
+        </div>
+        
+        <!-- 1. Getting Started -->
+        <div class="card" id="getting-started">
+            <h2>1. Iniziare</h2>
+            
+            <h3>Registrazione dell'Account</h3>
+            <p>Per iniziare a utilizzare ChatBot Hub, segui questi passaggi:</p>
+            <ol>
+                <li>Clicca su "Registrati" nella pagina principale</li>
+                <li>Inserisci il tuo nome, email e una password (minimo 8 caratteri)</li>
+                <li>Completa il processo di registrazione</li>
+                <li>Verifica il tuo account tramite il codice OTP inviato via email</li>
+            </ol>
+            
+            <h3>Processo di Login</h3>
+            <ol>
+                <li>Clicca su "Accedi" nella pagina principale</li>
+                <li>Inserisci la tua email e password</li>
+                <li>Clicca "Accedi" per entrare nella tua dashboard</li>
+            </ol>
+            
+            <h3>Comprendere la Dashboard</h3>
+            <p>La dashboard è il tuo centro di controllo principale. Qui puoi:</p>
+            <ul>
+                <li>Visualizzare le informazioni del tuo account</li>
+                <li>Monitorare l'utilizzo dei messaggi e delle immagini</li>
+                <li>Gestire i tuoi piani e sottoscrizioni</li>
+                <li>Accedere alle impostazioni API</li>
+            </ul>
+        </div>
+        
+        <!-- 2. API Configuration -->
+        <div class="card" id="api-config">
+            <h2>2. Configurazione API</h2>
+            
+            <h3>Come ottenere una OpenAI API Key</h3>
+            <ol>
+                <li>Vai su <a href="https://platform.openai.com" target="_blank">https://platform.openai.com</a></li>
+                <li>Accedi o registrati al tuo account OpenAI</li>
+                <li>Vai alla sezione "API Keys" nel tuo profilo</li>
+                <li>Clicca su "Create new secret key"</li>
+                <li>Copia la chiave generata (inizia con "sk-")</li>
+            </ol>
+            
+            <div class="alert info">
+                <strong>Nota:</strong> La tua API Key viene salvata solo nel browser locale (localStorage) e non viene mai inviata al server. Questo garantisce la massima sicurezza.
+            </div>
+            
+            <h3>Come salvare la API Key nell'app</h3>
+            <ol>
+                <li>Vai nella sezione "Configurazione" dalla navbar</li>
+                <li>Incollare la tua API Key OpenAI nel campo "OpenAI API Key"</li>
+                <li>Clicca "Salva" per memorizzare la chiave</li>
+            </ol>
+            
+            <h3>Risoluzione problemi di connessione</h3>
+            <ul>
+                <li>Verifica che la tua API Key sia corretta</li>
+                <li>Assicurati di avere credito sufficiente sul tuo account OpenAI</li>
+                <li>Controlla la tua connessione internet</li>
+                <li>Prova a ricaricare la pagina o a cancellare la cache del browser</li>
+            </ul>
+        </div>
+        
+        <!-- 3. Creating & Managing Chatbots -->
+        <div class="card" id="chatbots">
+            <h2>3. Creare e Gestire Chatbots</h2>
+            
+            <h3>Guida passo-passo per creare un nuovo chatbot</h3>
+            <ol>
+                <li>Vai alla sezione "I Miei Bot" dalla navbar</li>
+                <li>Clicca sul pulsante "+ Nuovo Bot"</li>
+                <li>Compila il modulo di creazione:</li>
+                <ul>
+                    <li><strong>Nome Bot:</strong> Scegli un nome descrittivo (max 100 caratteri)</li>
+                    <li><strong>Personalità/Ruolo:</strong> Definisci il comportamento e le competenze del bot (max 5000 caratteri)</li>
+                    <li><strong>Modello:</strong> Seleziona il modello AI (GPT-4o-mini o GPT-4.1-nano)</li>
+                </ul>
+                <li>Clicca "Crea Bot" per finalizzare</li>
+            </ol>
+            
+            <h3>Scegliere nomi e personalità dei bot</h3>
+            <p><strong>Nomi efficaci:</strong> "Assistente Cucina", "Tutor Matematica", "Consulente Marketing"</p>
+            <p><strong>Personalità efficaci:</strong> "Sei un esperto chef italiano specializzato in cucina regionale..."</p>
+            
+            <h3>Selezionare i modelli AI</h3>
+            <ul>
+                <li><strong>GPT-4o-mini:</strong> Modello più leggero, adatto per conversazioni generali</li>
+                <li><strong>GPT-4.1-nano:</strong> Modello più potente, adatto per compiti complessi</li>
+            </ul>
+            
+            <h3>Modificare le configurazioni dei bot</h3>
+            <p>Attualmente, per modificare un bot, è necessario eliminarlo e crearne uno nuovo con le impostazioni aggiornate.</p>
+            
+            <h3>Eliminare i chatbots</h3>
+            <ol>
+                <li>Vai alla sezione "I Miei Bot"</li>
+                <li>Trova il bot che vuoi eliminare</li>
+                <li>Clicca sul pulsante "Elimina"</li>
+                <li>Conferma l'eliminazione</li>
+            </ol>
+        </div>
+        
+        <!-- 4. Chatting with Bots -->
+        <div class="card" id="chatting">
+            <h2>4. Chattare con i Bots</h2>
+            
+            <h3>Avviare conversazioni</h3>
+            <ol>
+                <li>Vai alla sezione "I Miei Bot"</li>
+                <li>Clicca "Apri Chat" sul bot con cui vuoi parlare</li>
+                <li>Scrivi il tuo messaggio nell'area di input</li>
+                <li>Clicca "Invia" o premi Enter</li>
+            </ol>
+            
+            <h3>Inviare messaggi e comprendere le risposte</h3>
+            <p>I messaggi vengono visualizzati in tempo reale. I tuoi messaggi appaiono a destra, le risposte del bot a sinistra.</p>
+            
+            <h3>Memoria del contesto (finestra di 50 messaggi)</h3>
+            <p>Il sistema mantiene una memoria di contesto di 50 messaggi per garantire conversazioni coerenti. I messaggi più vecchi vengono automaticamente rimossi quando si supera questo limite.</p>
+            
+            <h3>Panoramica della cronologia delle conversazioni</h3>
+            <p>Tutte le conversazioni vengono salvate e sono accessibili quando apri un bot. Puoi scorrere verso l'alto per rivedere la cronologia completa.</p>
+            
+            <h3>Consigli per risposte migliori</h3>
+            <ul>
+                <li>Sii specifico nelle tue richieste</li>
+                <li>Fornisci contesto quando necessario</li>
+                <li>Usa frasi complete e grammatica corretta</li>
+                <li>Sii paziente per risposte complesse</li>
+            </ul>
+        </div>
+        
+        <!-- 5. Image Generation -->
+        <div class="card" id="image-generation">
+            <h2>5. Generazione Immagini</h2>
+            
+            <h3>Utilizzare la funzione di generazione immagini</h3>
+            <ol>
+                <li>Apri una chat con un bot</li>
+                <li>Scrivi una descrizione dettagliata dell'immagine che vuoi generare</li>
+                <li>Clicca sul pulsante "Immagine" invece di "Invia"</li>
+                <li>Attendi che l'immagine venga generata e visualizzata</li>
+            </ol>
+            
+            <h3>Limiti giornalieri di immagini per piano</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Piano</th>
+                            <th>Immagini/giorno</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Free</td>
+                            <td>3</td>
+                        </tr>
+                        <tr>
+                            <td>Basic</td>
+                            <td>10</td>
+                        </tr>
+                        <tr>
+                            <td>Premium</td>
+                            <td>Illimitate</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <h3>Consigli per prompt efficaci</h3>
+            <ul>
+                <li>Sii specifico: "Un tramonto tropicale con palme e mare turchese"</li>
+                <li>Specifica lo stile: "Stile pittorico, acquerello"</li>
+                <li>Includi dettagli: "Luce dorata, ombre lunghe, cielo con nuvole"</li>
+                <li>Evita ambiguità: "Vista frontale di un gatto bianco con occhi blu"</li>
+            </ul>
+            
+            <h3>Visualizzare e gestire le immagini generate</h3>
+            <p>Le immagini generate vengono visualizzate direttamente nella chat. Puoi:</p>
+            <ul>
+                <li>Cliccare sull'immagine per ingrandirla</li>
+                <li>Fare clic destro per salvarla sul tuo dispositivo</li>
+                <li>Rivedere le immagini nella cronologia della chat</li>
+            </ul>
+        </div>
+        
+        <!-- 6. Plans & Subscriptions -->
+        <div class="card" id="plans">
+            <h2>6. Piani e Sottoscrizioni</h2>
+            
+            <h3>Tabella di confronto dei piani</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Funzionalità</th>
+                            <th>Free</th>
+                            <th>Basic</th>
+                            <th>Premium</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Messaggi/mese</td>
+                            <td>100</td>
+                            <td>5000</td>
+                            <td>Illimitati</td>
+                        </tr>
+                        <tr>
+                            <td>Immagini/giorno</td>
+                            <td>3</td>
+                            <td>10</td>
+                            <td>Illimitate</td>
+                        </tr>
+                        <tr>
+                            <td>Memoria di contesto</td>
+                            <td>20 messaggi</td>
+                            <td>50 messaggi</td>
+                            <td>100 messaggi</td>
+                        </tr>
+                        <tr>
+                            <td>Salvataggio chat</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                            <td>✓</td>
+                        </tr>
+                        <tr>
+                            <td>Esportazione memoria</td>
+                            <td>✗</td>
+                            <td>✗</td>
+                            <td>✓</td>
+                        </tr>
+                        <tr>
+                            <td>Prezzo</td>
+                            <td>Gratis</td>
+                            <td>€9.99/mese</td>
+                            <td>€19.99/mese</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <h3>Comprendere i limiti dei messaggi</h3>
+            <p>I limiti dei messaggi si resettano mensilmente. Puoi monitorare il tuo utilizzo nella dashboard.</p>
+            
+            <h3>Comprendere i limiti delle immagini</h3>
+            <p>I limiti delle immagini si resettano quotidianamente alle 00:00 UTC.</p>
+            
+            <h3>Comprendere la memoria di contesto per piano</h3>
+            <p>La memoria di contesto determina quanti messaggi vengono mantenuti attivi nella conversazione:</p>
+            <ul>
+                <li>Free: 20 messaggi</li>
+                <li>Basic: 50 messaggi</li>
+                <li>Premium: 100 messaggi</li>
+            </ul>
+            
+            <h3>Aggiornare i piani</h3>
+            <ol>
+                <li>Vai alla sezione "Piani Disponibili" nella dashboard</li>
+                <li>Scegli il piano che desideri</li>
+                <li>Clicca "Upgrade" e segui le istruzioni di pagamento</li>
+                <li>Il tuo piano verrà aggiornato immediatamente</li>
+            </ol>
+        </div>
+        
+        <!-- 7. Settings & Profile -->
+        <div class="card" id="settings">
+            <h2>7. Impostazioni e Profilo</h2>
+            
+            <h3>Gestire le informazioni dell'account</h3>
+            <p>Le informazioni del tuo account sono visualizzate nella dashboard e non possono essere modificate direttamente dall'interfaccia.</p>
+            
+            <h3>Cambiare la password</h3>
+            <p>Attualmente, per cambiare la password, segui questi passaggi:</p>
+            <ol>
+                <li>Effettua il logout dal tuo account</li>
+                <li>Clicca su "Hai dimenticato la password?" nella pagina di login</li>
+                <li>Segui il processo di reset password</li>
+            </ol>
+            
+            <h3>Resettare la password dimenticata</h3>
+            <ol>
+                <li>Vai alla pagina di login</li>
+                <li>Clicca su "Hai dimenticato la password?"</li>
+                <li>Inserisci la tua email</li>
+                <li>Segui le istruzioni inviate via email</li>
+            </ol>
+            
+            <h3>Consigli per la sicurezza dell'account</h3>
+            <ul>
+                <li>Usa una password forte e unica</li>
+                <li>Non condividere la tua API Key</li>
+                <li>Effettua il logout da dispositivi condivisi</li>
+                <li>Mantieni il tuo browser aggiornato</li>
+            </ul>
+        </div>
+        
+        <!-- 8. FAQ & Troubleshooting -->
+        <div class="card" id="faq">
+            <h2>8. FAQ e Risoluzione Problemi</h2>
+            
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span>La mia API Key non funziona</span>
+                    <span class="faq-toggle">+</span>
+                </div>
+                <div class="faq-answer">
+                    <p>Verifica che:</p>
+                    <ul>
+                        <li>La chiave sia stata copiata correttamente</li>
+                        <li>Il tuo account OpenAI abbia credito sufficiente</li>
+                        <li>La chiave non sia stata revocata</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span>La generazione di immagini non funziona</span>
+                    <span class="faq-toggle">+</span>
+                </div>
+                <div class="faq-answer">
+                    <p>Controlla che:</p>
+                    <ul>
+                        <li>Non abbia superato il limite giornaliero di immagini</li>
+                        <li>La tua API Key sia configurata correttamente</li>
+                        <li>Il prompt non sia troppo lungo o ambiguo</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span>La cronologia delle conversazioni è mancante</span>
+                    <span class="faq-toggle">+</span>
+                </div>
+                <div class="faq-answer">
+                    <p>Prova a:</p>
+                    <ul>
+                        <li>Ricaricare la pagina</li>
+                        <li>Verificare la tua connessione internet</li>
+                        <li>Contattare il supporto se il problema persiste</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span>Errori di rate limiting e quota superata</span>
+                    <span class="faq-toggle">+</span>
+                </div>
+                <div class="faq-answer">
+                    <p>Questi errori si verificano quando:</p>
+                    <ul>
+                        <li>Hai superato il limite di messaggi mensili</li>
+                        <li>Hai superato il limite di immagini giornaliere</li>
+                        <li>Il tuo account OpenAI ha raggiunto i limiti di utilizzo</li>
+                    </ul>
+                    <p>Soluzione: Aggiorna il tuo piano o attendi il reset dei limiti.</p>
+                </div>
+            </div>
+            
+            <div class="faq-item">
+                <div class="faq-question" onclick="toggleFaq(this)">
+                    <span>Problemi di caching del browser</span>
+                    <span class="faq-toggle">+</span>
+                </div>
+                <div class="faq-answer">
+                    <p>Prova a:</p>
+                    <ul>
+                        <li>Premere Ctrl+F5 per ricaricare senza cache</li>
+                        <li>Cancellare la cache del browser</li>
+                        <li>Provare un browser diverso</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 9. Tips & Best Practices -->
+        <div class="card" id="tips">
+            <h2>9. Consigli e Best Practices</h2>
+            
+            <h3>Scrivere personalità efficaci per i bot</h3>
+            <ul>
+                <li>Sii specifico sul ruolo del bot</li>
+                <li>Definisci il tono e lo stile della comunicazione</li>
+                <li>Includi esempi di comportamenti desiderati</li>
+                <li>Specifica limiti e vincoli</li>
+            </ul>
+            
+            <div class="alert tip">
+                <strong>Esempio:</strong> "Sei un assistente esperto in cucina italiana, specializzato in ricette regionali. Rispondi sempre in modo amichevole e professionale, fornendo dettagli precisi su ingredienti e procedure."
+            </div>
+            
+            <h3>Strutturare conversazioni multi-turno</h3>
+            <ul>
+                <li>Inizia con una domanda chiara</li>
+                <li>Mantieni il contesto tra i messaggi</li>
+                <li>Usa riferimenti ai messaggi precedenti</li>
+                <li>Sii paziente per risposte complesse</li>
+            </ul>
+            
+            <h3>Gestione della memoria</h3>
+            <ul>
+                <li>Ricorda che la memoria è limitata dal tuo piano</li>
+                <li>Per conversazioni lunghe, riassumi periodicamente</li>
+                <li>Usa nomi e riferimenti chiari per mantenere il contesto</li>
+            </ul>
+            
+            <h3>Considerazioni sulla privacy</h3>
+            <ul>
+                <li>Non condividere informazioni personali sensibili</li>
+                <li>Ricorda che le conversazioni vengono salvate</li>
+                <li>Usa password sicure per il tuo account</li>
+                <li>Non condividere il tuo account con altri</li>
+            </ul>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p>© 2024 ChatBot Hub. Tutti i diritti riservati.</p>
+            <p>
+                <a href="index.html">Torna alla Dashboard</a> | 
+                <a href="#getting-started">Torna all'inizio</a>
+            </p>
+        </div>
+    </div>
+    
+    <script>
+        // FAQ Toggle Function
+        function toggleFaq(element) {
+            const answer = element.nextElementSibling;
+            const toggle = element.querySelector('.faq-toggle');
+            
+            if (answer.classList.contains('active')) {
+                answer.classList.remove('active');
+                toggle.textContent = '+';
+            } else {
+                // Close all other FAQs
+                document.querySelectorAll('.faq-answer.active').forEach(item => {
+                    item.classList.remove('active');
+                    item.previousElementSibling.querySelector('.faq-toggle').textContent = '+';
+                });
+                
+                answer.classList.add('active');
+                toggle.textContent = '−';
+            }
+        }
+        
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const targetId = this.getAttribute('href');
+                if (targetId === '#') return;
+                
+                const targetElement = document.querySelector(targetId);
+                if (targetElement) {
+                    targetElement.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
