@@ -321,18 +321,18 @@ font-size: 0.85rem;
                     <div class="grid">
                         <div class="plan-card card">
                             <h4>Free</h4>
-                            <p>100 messaggi/mese<br>3 immagini/giorno<br>memoria di contesto (20 messaggi)<br>salvataggio chats</p>    
+                            <p>100 messaggi/mese<br>3 immagini/giorno<br>memoria di contesto (20 messaggi)<br>salvataggio chats<br>Modello: GPT-4.1-nano</p>
                             <p><strong>Gratis</strong></p>
                         </div>
                         <div class="plan-card card basic">
                             <h4>Basic</h4>
-                            <p>5000 messaggi/mese<br>10 immagini/giorno<br>memoria di contesto (50 messaggi)<br>salvataggio chats</p>
+                            <p>5000 messaggi/mese<br>10 immagini/giorno<br>memoria di contesto (50 messaggi)<br>salvataggio chats<br>Modelli: GPT-4o-mini, GPT-4.1-nano</p>
                             <p><strong>€9.99/mese</strong></p>
                             <button class="btn" onclick="upgradePlan('basic')">Aggiorna Piano</button>
                         </div>
                         <div class="plan-card card premium">
                             <h4>Premium</h4>
-                            <p>Messaggi illimitati<br>Immagini illimitate<br>memoria di contesto (100 messaggi)<br>esportazione memoria<br>salvataggio chats</p>
+                            <p>Messaggi illimitati<br>Immagini illimitate<br>memoria di contesto (100 messaggi)<br>esportazione memoria<br>salvataggio chats<br>Modelli: GPT-4o-mini, GPT-4.1-nano</p>
                             <p><strong>€19.99/mese</strong></p>
                             <button class="btn" onclick="upgradePlan('premium')">Aggiorna Piano</button>
                         </div>
@@ -370,11 +370,11 @@ font-size: 0.85rem;
 <textarea id="bot-personality" placeholder="Es: Sei un assistente esperto in cucina italiana..." maxlength="2000"></textarea>
 </div>
 <div class="form-group">
-<label>Modello:</label>
-<select id="bot-model">
-<option value="gpt-4o-mini">GPT-4o-mini</option>
-<option value="gpt-4.1-nano">GPT-4.1-nano</option>
-</select>
+    <label>Modello:</label>
+    <select id="bot-model">
+        <option value="gpt-4o-mini" selected>GPT-4o-mini</option>
+        <option value="gpt-4.1-nano">GPT-4.1-nano</option>
+    </select>
 </div>
 <div class="button-row">
 <button class="btn" onclick="createBot()">Crea Bot</button>
@@ -821,13 +821,50 @@ showAlert('Errore durante la registrazione', 'error');
 
         function showCreateBot() {
             document.getElementById('create-bot-form').classList.remove('hidden');
+            populateModelOptions();
         }
 
         function hideCreateBot() {
             document.getElementById('create-bot-form').classList.add('hidden');
             document.getElementById('bot-name').value = '';
             document.getElementById('bot-personality').value = '';
-            document.getElementById('bot-model').value = 'gpt-3.5-turbo';
+            // Reset to default model for user's plan
+            const defaultModel = getDefaultModelForPlan(currentUser.plan);
+            document.getElementById('bot-model').value = defaultModel;
+        }
+
+        function populateModelOptions() {
+            const modelSelect = document.getElementById('bot-model');
+            modelSelect.innerHTML = '';
+            
+            const models = getModelsForPlan(currentUser.plan);
+            const defaultModel = getDefaultModelForPlan(currentUser.plan);
+            
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model === 'gpt-4o-mini' ? 'GPT-4o-mini' : 'GPT-4.1-nano';
+                if (model === defaultModel) {
+                    option.selected = true;
+                }
+                modelSelect.appendChild(option);
+            });
+        }
+
+        function getModelsForPlan(plan) {
+            if (plan === 'free') {
+                return ['gpt-4.1-nano'];
+            }
+            // basic and premium get both models
+            return ['gpt-4o-mini', 'gpt-4.1-nano'];
+        }
+
+        function getDefaultModelForPlan(plan) {
+            if (plan === 'free') {
+                return 'gpt-4.1-nano';
+            }
+            // basic and premium default to gpt-4o-mini
+            return 'gpt-4o-mini';
         }
 
         async function createBot() {
