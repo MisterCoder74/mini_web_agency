@@ -499,16 +499,443 @@ return mail($to, $subject, $message, $headers);
 }
 
 // ============================================================================
+// RATE LIMITING SYSTEM
+// ============================================================================
+
+/**
+ * Initialize rate limits file
+ */
+function initializeRateLimits() {
+    $file = './data/rate_limits.json';
+    if (!file_exists($file)) {
+        $initialData = [
+            'hourly' => [],
+            'daily' => [],
+            'login_attempts' => [],
+            'last_cleanup' => time()
+        ];
+        file_put_contents($file, json_encode($initialData, JSON_PRETTY_PRINT));
+    }
+}
+
+/**
+ * Load rate limits data with file locking
+ */
+function loadRateLimitsWithLock() {
+    $file = './data/rate_limits.json';
+    $fp = fopen($file, 'c+');
+    if (!$fp) {
+        return ['success' => false, 'data' => null];
+    }
+    
+    if (!flock($fp, LOCK_SH)) {
+        fclose($fp);
+        return ['success' => false, 'data' => null];
+    }
+    
+    $content = stream_get_contents($fp);
+    flock($fp, LOCK_UN);
+    fclose($fp);
+    
+    $data = json_decode($content, true);
+    if (!$data) {
+        $data = [
+            'hourly' => [],
+            'daily' => [],
+            'login_attempts' => [],
+            'last_cleanup' => time()
+        ];
+    }
+    
+    return ['success' => true, 'data' => $data];
+}
+
+/**
+ * Save rate limits data with file locking
+ */
+function saveRateLimitsWithLock($data) {
+    $file = './data/rate_limits.json';
+    $fp = fopen($file, 'w');
+    if (!$fp) {
+        return false;
+    }
+    
+    if (!flock($fp, LOCK_EX)) {
+        fclose($fp);
+        return false;
+    }
+    
+    $result = fwrite($fp, json_encode($data, JSON_PRETTY_PRINT));
+    flock($fp, LOCK_UN);
+    fclose($fp);
+    
+    return $result !== false;
+}
+
+/**
+ * Clean up old rate limit entries (older than 24 hours)
+ */
+function cleanupRateLimits() {
+    $result = loadRateLimitsWithLock();
+    if (!$result['success']) {
+        return false;
+    }
+    
+    $data = $result['data'];
+    $cutoff = time() - (24 * 60 * 60); // 24 hours ago
+    
+    // Clean hourly limits
+    foreach ($data['hourly'] as $key => $userLimits) {
+        foreach ($userLimits as $action => $timestamps) {
+            $data['hourly'][$key][$action] = array_filter($timestamps, function($timestamp) use ($cutoff) {
+                return $timestamp > $cutoff;
+            });
+            
+            // Remove empty action arrays
+            if (empty($data['hourly'][$key][$action])) {
+                unset($data['hourly'][$key][$action]);
+            }
+        }
+        
+        // Remove empty user entries
+        if (empty($data['hourly'][$key])) {
+            unset($data['hourly'][$key]);
+        }
+    }
+    
+    // Clean daily limits
+    foreach ($data['daily'] as $key => $userLimits) {
+        foreach ($userLimits as $action => $dateData) {
+            foreach ($dateData as $date => $timestamps) {
+                $data['daily'][$key][$action][$date] = array_filter($timestamps, function($timestamp) use ($cutoff) {
+                    return $timestamp > $cutoff;
+                });
+                
+                // Remove empty date entries
+                if (empty($data['daily'][$key][$action][$date])) {
+                    unset($data['daily'][$key][$action][$date]);
+                }
+            }
+            
+            // Remove empty action arrays
+            if (empty($data['daily'][$key][$action])) {
+                unset($data['daily'][$key][$action]);
+            }
+        }
+        
+        // Remove empty user entries
+        if (empty($data['daily'][$key])) {
+            unset($data['daily'][$key]);
+        }
+    }
+    
+    // Clean login attempts
+    foreach ($data['login_attempts'] as $email => $attempts) {
+        // Filter out old attempts (older than 24 hours)
+        $data['login_attempts'][$email] = array_filter($attempts, function($timestamp) use ($cutoff) {
+            return $timestamp > $cutoff;
+        });
+        
+        // Remove email entries with no recent attempts
+        if (empty($data['login_attempts'][$email])) {
+            unset($data['login_attempts'][$email]);
+        }
+    }
+    
+    $data['last_cleanup'] = time();
+    return saveRateLimitsWithLock($data);
+}
+
+/**
+ * Get rate limits configuration
+ */
+function getRateLimitConfig($action) {
+    $configs = [
+        'sendMessage' => ['limit' => 50, 'period' => 'hourly'],
+        'generateImage' => ['limit' => 10, 'period' => 'daily'],
+        'createBot' => ['limit' => 20, 'period' => 'hourly'],
+        'register' => ['limit' => 5, 'period' => 'hourly'],
+        'login' => ['limit' => 3, 'period' => 'lockout'], // Special case for login
+        'forgotPassword' => ['limit' => 5, 'period' => 'hourly'],
+        
+        // Generic actions that get default 50/hour limit
+        'checkAuth' => ['limit' => 50, 'period' => 'hourly'],
+        'getBots' => ['limit' => 50, 'period' => 'hourly'],
+        'getBot' => ['limit' => 50, 'period' => 'hourly'],
+        'deleteBot' => ['limit' => 50, 'period' => 'hourly'],
+        'exportConversation' => ['limit' => 50, 'period' => 'hourly'],
+        'deleteAccount' => ['limit' => 50, 'period' => 'hourly'],
+        'logout' => ['limit' => 50, 'period' => 'hourly'],
+        'initiatePayment' => ['limit' => 50, 'period' => 'hourly'],
+        'upgradePlan' => ['limit' => 50, 'period' => 'hourly'],
+        'verifyOtp' => ['limit' => 50, 'period' => 'hourly'],
+        'resetPassword' => ['limit' => 50, 'period' => 'hourly']
+    ];
+    
+    // Default for other actions
+    if (!isset($configs[$action])) {
+        return ['limit' => 50, 'period' => 'hourly'];
+    }
+    
+    return $configs[$action];
+}
+
+/**
+ * Check rate limit for user and action
+ * Returns: ['exceeded' => bool, 'remaining' => int, 'resetTime' => timestamp]
+ */
+function checkRateLimit($userId, $action) {
+    // Initialize rate limits if needed
+    initializeRateLimits();
+    
+    // Clean up old entries periodically
+    $result = loadRateLimitsWithLock();
+    if ($result['success']) {
+        $data = $result['data'];
+        if (time() - ($data['last_cleanup'] ?? 0) > 3600) { // Cleanup every hour
+            cleanupRateLimits();
+        }
+    }
+    
+    $config = getRateLimitConfig($action);
+    
+    // Special handling for login (tracks by email, not userId)
+    if ($action === 'login') {
+        return ['exceeded' => false, 'remaining' => 999, 'resetTime' => time()];
+    }
+    
+    $result = loadRateLimitsWithLock();
+    if (!$result['success']) {
+        return ['exceeded' => false, 'remaining' => 999, 'resetTime' => time()];
+    }
+    
+    $data = $result['data'];
+    $currentTime = time();
+    
+    if ($config['period'] === 'daily') {
+        // Daily limits - track by date
+        $today = date('Y-m-d');
+        $key = $userId;
+        
+        if (!isset($data['daily'][$key][$action][$today])) {
+            $data['daily'][$key][$action][$today] = [];
+        }
+        
+        $todayRequests = $data['daily'][$key][$action][$today];
+        $requestCount = count($todayRequests);
+        
+        if ($requestCount >= $config['limit']) {
+            // Calculate reset time (midnight)
+            $resetTime = strtotime('tomorrow');
+            return [
+                'exceeded' => true,
+                'remaining' => 0,
+                'resetTime' => $resetTime
+            ];
+        }
+        
+        // Calculate remaining requests
+        $remaining = $config['limit'] - $requestCount;
+        $resetTime = strtotime('tomorrow'); // Daily reset at midnight
+        
+        return [
+            'exceeded' => false,
+            'remaining' => $remaining,
+            'resetTime' => $resetTime
+        ];
+        
+    } else {
+        // Hourly limits - sliding window
+        $key = $userId;
+        $oneHourAgo = $currentTime - 3600; // 1 hour ago
+        
+        if (!isset($data['hourly'][$key][$action])) {
+            $data['hourly'][$key][$action] = [];
+        }
+        
+        // Count requests in the last hour
+        $recentRequests = array_filter($data['hourly'][$key][$action], function($timestamp) use ($oneHourAgo) {
+            return $timestamp > $oneHourAgo;
+        });
+        
+        $requestCount = count($recentRequests);
+        
+        if ($requestCount >= $config['limit']) {
+            // Find the oldest request to calculate reset time
+            sort($recentRequests);
+            $oldestRequest = reset($recentRequests);
+            $resetTime = $oldestRequest + 3600; // Reset 1 hour after oldest request
+            
+            return [
+                'exceeded' => true,
+                'remaining' => 0,
+                'resetTime' => $resetTime
+            ];
+        }
+        
+        // Calculate remaining requests
+        $remaining = $config['limit'] - $requestCount;
+        $resetTime = $currentTime + 3600; // Reset in 1 hour
+        
+        return [
+            'exceeded' => false,
+            'remaining' => $remaining,
+            'resetTime' => $resetTime
+        ];
+    }
+}
+
+/**
+ * Record a request for rate limiting
+ */
+function recordRequest($userId, $action) {
+    $result = loadRateLimitsWithLock();
+    if (!$result['success']) {
+        return false;
+    }
+    
+    $data = $result['data'];
+    $currentTime = time();
+    $config = getRateLimitConfig($action);
+    
+    if ($config['period'] === 'daily') {
+        // Daily tracking
+        $today = date('Y-m-d');
+        $key = $userId;
+        
+        if (!isset($data['daily'][$key][$action][$today])) {
+            $data['daily'][$key][$action][$today] = [];
+        }
+        
+        $data['daily'][$key][$action][$today][] = $currentTime;
+        
+    } elseif ($config['period'] === 'hourly') {
+        // Hourly tracking
+        $key = $userId;
+        
+        if (!isset($data['hourly'][$key][$action])) {
+            $data['hourly'][$key][$action] = [];
+        }
+        
+        $data['hourly'][$key][$action][] = $currentTime;
+    }
+    
+    return saveRateLimitsWithLock($data);
+}
+
+/**
+ * Check login brute force protection
+ */
+function checkLoginAttempts($email) {
+    $result = loadRateLimitsWithLock();
+    if (!$result['success']) {
+        return ['locked' => false, 'attempts' => 0, 'resetTime' => time()];
+    }
+    
+    $data = $result['data'];
+    $currentTime = time();
+    $fifteenMinutesAgo = $currentTime - (15 * 60); // 15 minutes ago
+    
+    if (!isset($data['login_attempts'][$email])) {
+        $data['login_attempts'][$email] = [];
+    }
+    
+    // Filter recent attempts (last 15 minutes)
+    $recentAttempts = array_filter($data['login_attempts'][$email], function($timestamp) use ($fifteenMinutesAgo) {
+        return $timestamp > $fifteenMinutesAgo;
+    });
+    
+    $attemptCount = count($recentAttempts);
+    
+    // If 3 or more failed attempts in last 15 minutes, lock account
+    if ($attemptCount >= 3) {
+        // Find the oldest attempt to calculate reset time
+        sort($recentAttempts);
+        $oldestAttempt = reset($recentAttempts);
+        $resetTime = $oldestAttempt + (15 * 60); // 15 minutes lock
+        
+        return [
+            'locked' => true,
+            'attempts' => $attemptCount,
+            'resetTime' => $resetTime
+        ];
+    }
+    
+    return [
+        'locked' => false,
+        'attempts' => $attemptCount,
+        'resetTime' => $currentTime + (15 * 60) // Lock expires in 15 minutes
+    ];
+}
+
+/**
+ * Record failed login attempt
+ */
+function recordFailedLogin($email) {
+    $result = loadRateLimitsWithLock();
+    if (!$result['success']) {
+        return false;
+    }
+    
+    $data = $result['data'];
+    $currentTime = time();
+    
+    if (!isset($data['login_attempts'][$email])) {
+        $data['login_attempts'][$email] = [];
+    }
+    
+    $data['login_attempts'][$email][] = $currentTime;
+    
+    return saveRateLimitsWithLock($data);
+}
+
+/**
+ * Reset login attempts on successful login
+ */
+function resetLoginAttempts($email) {
+    $result = loadRateLimitsWithLock();
+    if (!$result['success']) {
+        return false;
+    }
+    
+    $data = $result['data'];
+    
+    if (isset($data['login_attempts'][$email])) {
+        unset($data['login_attempts'][$email]);
+    }
+    
+    return saveRateLimitsWithLock($data);
+}
+
+// ============================================================================
 // API ROUTES
 // ============================================================================
 
 switch ($action) {
     case 'checkAuth':
+        // Check generic rate limit for authentication checks
+        if (isset($_SESSION['user_id'])) {
+            $rateLimit = checkRateLimit($_SESSION['user_id'], 'checkAuth');
+            
+            if ($rateLimit['exceeded']) {
+                $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+                echo json_encode([
+                    'success' => false,
+                    'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                    'retryAfter' => $rateLimit['resetTime'] - time()
+                ]);
+                break;
+            }
+        }
+        
         if (isset($_SESSION['user_id'])) {
             $user = findUserById($_SESSION['user_id']);
             if ($user) {
                 resetUsageIfNeeded($user);
                 echo json_encode(['success' => true, 'user' => $user]);
+                
+                // Record successful auth check
+                recordRequest($_SESSION['user_id'], 'checkAuth');
             } else {
                 echo json_encode(['success' => false]);
             }
@@ -518,9 +945,23 @@ switch ($action) {
         break;
 
     case 'register':
-$name = sanitizeInput($input['name']);
-$email = sanitizeInput($input['email']);
-$password = $input['password'];
+        // Check rate limit for registration (rate limited by IP/session since no user_id yet)
+        $rateLimitKey = $_SERVER['REMOTE_ADDR'] . '_register';
+        $rateLimit = checkRateLimit($rateLimitKey, 'register');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
+            break;
+        }
+        
+        $name = sanitizeInput($input['name']);
+        $email = sanitizeInput($input['email']);
+        $password = $input['password'];
 
 if (empty($name) || empty($email) || empty($password)) {
 echo json_encode(['success' => false, 'message' => 'Tutti i campi sono obbligatori']);
@@ -589,7 +1030,10 @@ $message = "Ciao $name,\n\nIl tuo codice di verifica è: $otp\nScadrà tra 15 mi
 sendEmail($email, $subject, $message);
 
 echo json_encode(['success' => true, 'message' => 'Codice OTP inviato via email.']);
-break;
+        
+        // Record successful registration attempt
+        recordRequest($rateLimitKey, 'register');
+        break;
                 
                 
                 
@@ -634,11 +1078,25 @@ break;
 
                 
 case 'forgotPassword':
-$email = sanitizeInput($input['email'] ?? '');
-if (empty($email)) {
-echo json_encode(['success' => false, 'message' => 'Email richiesta']);
-break;
-}
+        // Check rate limit for password reset requests
+        $rateLimitKey = $_SERVER['REMOTE_ADDR'] . '_forgotPassword';
+        $rateLimit = checkRateLimit($rateLimitKey, 'forgotPassword');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
+            break;
+        }
+        
+        $email = sanitizeInput($input['email'] ?? '');
+        if (empty($email)) {
+            echo json_encode(['success' => false, 'message' => 'Email richiesta']);
+            break;
+        }
 
 $user = findUserByEmail($email);
 if (!$user) {
@@ -657,7 +1115,10 @@ $message = "Ciao,\nIl tuo codice di reset è: $otp\nScadrà tra 15 minuti.\n";
 sendEmail($email, $subject, $message);
 
 echo json_encode(['success' => true, 'message' => 'Codice di reset inviato via email.']);
-break;
+        
+        // Record successful password reset request
+        recordRequest($rateLimitKey, 'forgotPassword');
+        break;
                 
 case 'resetPassword':
 $email = sanitizeInput($input['email'] ?? '');
@@ -694,8 +1155,20 @@ echo json_encode(['success' => true, 'message' => 'Password reimpostata con succ
 break;                
 
     case 'login':
-$email = sanitizeInput($input['email'] ?? '');
-$password = $input['password'] ?? '';
+        // Check login brute force protection
+        $loginCheck = checkLoginAttempts($email);
+        
+        if ($loginCheck['locked']) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Troppi tentativi falliti. Riprova tra 15 minuti.',
+                'retryAfter' => 900 // 15 minutes in seconds
+            ]);
+            break;
+        }
+        
+        $email = sanitizeInput($input['email'] ?? '');
+        $password = $input['password'] ?? '';
 
 if (empty($email) || empty($password)) {
 echo json_encode(['success' => false, 'message' => 'Email e password richiesti']);
@@ -718,25 +1191,63 @@ break;
 
 // 3️⃣ Verifica della password con hash
 if ($password === $user['password']) {
-$_SESSION['user_id'] = $user['id'];
-resetUsageIfNeeded($user);
+    // Successful login - reset failed attempts
+    resetLoginAttempts($email);
+    
+    $_SESSION['user_id'] = $user['id'];
+    resetUsageIfNeeded($user);
 
-// Non inviare password al client
-echo json_encode(['success' => true, 'user' => $user]);
+    // Non inviare password al client
+    echo json_encode(['success' => true, 'user' => $user]);
 } else {
-echo json_encode(['success' => false, 'message' => 'Credenziali non valide']);
+    // Failed login - record attempt
+    recordFailedLogin($email);
+    echo json_encode(['success' => false, 'message' => 'Credenziali non valide']);
 }
 break;
 
 
     case 'logout':
+        // Check rate limit for logout (if user is logged in)
+        if (isset($_SESSION['user_id'])) {
+            $rateLimit = checkRateLimit($_SESSION['user_id'], 'logout');
+            
+            if ($rateLimit['exceeded']) {
+                $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+                echo json_encode([
+                    'success' => false,
+                    'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                    'retryAfter' => $rateLimit['resetTime'] - time()
+                ]);
+                break;
+            }
+        }
+        
         session_destroy();
         echo json_encode(['success' => true]);
+        
+        // Record successful logout if user was logged in
+        if (isset($_SESSION['user_id'])) {
+            recordRequest($_SESSION['user_id'], 'logout');
+        }
         break;
 
     case 'initiatePayment':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for payment initiation
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'initiatePayment');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -795,6 +1306,9 @@ break;
                 'sessionId' => $checkoutSessionId
             ]);
             
+            // Record successful payment initiation
+            recordRequest($_SESSION['user_id'], 'initiatePayment');
+            
         } else if ($paymentMethod === 'paypal') {
             // PayPal form generation
             $paypalFormId = generateId();
@@ -823,12 +1337,28 @@ break;
                 ],
                 'paymentId' => $paypalFormId
             ]);
+            
+            // Record successful payment initiation
+            recordRequest($_SESSION['user_id'], 'initiatePayment');
         }
         break;
 
     case 'upgradePlan':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for plan upgrade
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'upgradePlan');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -857,11 +1387,27 @@ break;
         updateUser($user);
         
         echo json_encode(['success' => true, 'message' => 'Piano aggiornato']);
+        
+        // Record successful plan upgrade
+        recordRequest($_SESSION['user_id'], 'upgradePlan');
         break;
 
     case 'createBot':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for bot creation
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'createBot');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -914,11 +1460,27 @@ break;
         updateUser($user);
         
         echo json_encode(['success' => true, 'bot' => $newBot]);
+        
+        // Record successful bot creation
+        recordRequest($_SESSION['user_id'], 'createBot');
         break;
 
     case 'getBots':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for getting bots
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'getBots');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -929,11 +1491,27 @@ break;
         }
         
         echo json_encode(['success' => true, 'bots' => $user['bots'] ?? []]);
+        
+        // Record successful bot retrieval
+        recordRequest($_SESSION['user_id'], 'getBots');
         break;
 
     case 'getBot':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for getting bot
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'getBot');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -963,11 +1541,27 @@ break;
         }
         
         echo json_encode(['success' => true, 'bot' => $bot]);
+        
+        // Record successful bot retrieval
+        recordRequest($_SESSION['user_id'], 'getBot');
         break;
 
     case 'deleteBot':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for deleting bot
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'deleteBot');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -1002,11 +1596,27 @@ break;
         updateUser($user);
         
         echo json_encode(['success' => true]);
+        
+        // Record successful bot deletion
+        recordRequest($_SESSION['user_id'], 'deleteBot');
         break;
 
     case 'sendMessage':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for sending messages
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'sendMessage');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
         
@@ -1161,11 +1771,27 @@ break;
             'nearLimit' => $nearLimit,
             'bot' => $updatedBot
         ]);
+        
+        // Record successful message sending
+        recordRequest($_SESSION['user_id'], 'sendMessage');
         break;
 
     case 'exportConversation':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for conversation export
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'exportConversation');
+        
+        if ($rateLimit['exceeded']) {
+            $minutes = ceil(($rateLimit['resetTime'] - time()) / 60);
+            echo json_encode([
+                'success' => false,
+                'message' => "Limite di richieste raggiunto. Riprova tra {$minutes} minuti.",
+                'retryAfter' => $rateLimit['resetTime'] - time()
+            ]);
             break;
         }
 
@@ -1277,12 +1903,27 @@ break;
         header('Content-Type: text/plain; charset=UTF-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('X-Content-Type-Options: nosniff');
+        
+        // Record successful conversation export
+        recordRequest($_SESSION['user_id'], 'exportConversation');
+        
         echo $txt;
         exit;
 
     case 'generateImage':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+        
+        // Check rate limit for image generation (daily limit)
+        $rateLimit = checkRateLimit($_SESSION['user_id'], 'generateImage');
+        
+        if ($rateLimit['exceeded']) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Limite giornaliero immagini raggiunto (10/giorno). Riprova domani.'
+            ]);
             break;
         }
         
@@ -1329,6 +1970,9 @@ break;
             'imageUrl' => $result['url'],
             'usage' => $user['usage'] ?? null
         ]);
+        
+        // Record successful image generation
+        recordRequest($_SESSION['user_id'], 'generateImage');
         break;
 
     case 'deleteAccount':
