@@ -340,6 +340,23 @@ function getHistoryLimit($plan) {
     }
 }
 
+/**
+ * Check if a model is allowed for a given plan
+ * @param string $model The model name
+ * @param string $plan The user's plan
+ * @return bool True if model is allowed for the plan
+ */
+function isModelAllowedForPlan($model, $plan) {
+    // Define allowed models per plan
+    $allowedModels = [
+        'free' => ['gpt-4.1-nano'],
+        'basic' => ['gpt-4o-mini', 'gpt-4.1-nano'],
+        'premium' => ['gpt-4o-mini', 'gpt-4.1-nano']
+    ];
+    
+    return in_array($model, $allowedModels[$plan] ?? $allowedModels['free'], true);
+}
+
 function canSendMessage($user) {
     $limits = getPlanLimits($user['plan']);
     return $user['plan'] === 'premium' || $user['usage']['messages'] < $limits['messages'];
@@ -861,15 +878,26 @@ break;
             echo json_encode(['success' => false, 'message' => 'Personalità non valida (max 5000 caratteri)']);
             break;
         }
-        
-        $model = sanitizeInput($input['model'] ?? 'gpt-3.5-turbo');
-        if (!in_array($model, ['gpt-3.5-turbo', 'gpt-4.1-nano'])) {
-            $model = 'gpt-3.5-turbo';
-        }
-        
+
         $user = findUserById($_SESSION['user_id']);
         if (!$user) {
             echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
+            break;
+        }
+
+        // Validate and set model with plan-based restrictions
+        $model = sanitizeInput($input['model'] ?? 'gpt-4o-mini');
+        $allowedModels = ['gpt-4o-mini', 'gpt-4.1-nano'];
+        
+        if (!in_array($model, $allowedModels, true)) {
+            $model = 'gpt-4o-mini';
+        }
+        
+        // Check if model is allowed for user's plan
+        if (!isModelAllowedForPlan($model, $user['plan'])) {
+            $allowedForPlan = $user['plan'] === 'free' ? 'gpt-4.1-nano' : 'gpt-4o-mini e gpt-4.1-nano';
+            $planDisplay = $user['plan'];
+            echo json_encode(['success' => false, 'message' => "Il modello $model non è disponibile per il tuo piano. Piano $planDisplay: $allowedForPlan"]);
             break;
         }
         
