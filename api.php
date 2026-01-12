@@ -1163,6 +1163,123 @@ break;
         ]);
         break;
 
+    case 'exportConversation':
+        if (!isset($_SESSION['user_id'])) {
+            echo json_encode(['success' => false, 'message' => 'Non autenticato']);
+            break;
+        }
+
+        $botId = sanitizeInput($input['botId'] ?? '');
+        if (empty($botId)) {
+            echo json_encode(['success' => false, 'message' => 'Bot ID richiesto']);
+            break;
+        }
+
+        $user = findUserById($_SESSION['user_id']);
+        if (!$user) {
+            echo json_encode(['success' => false, 'message' => 'Utente non trovato']);
+            break;
+        }
+
+        $plan = $user['plan'] ?? 'free';
+        if ($plan !== 'premium') {
+            echo json_encode(['success' => false, 'message' => 'Esportazione non disponibile']);
+            break;
+        }
+
+        $bot = null;
+        foreach (($user['bots'] ?? []) as $userBot) {
+            if (($userBot['id'] ?? '') === $botId) {
+                $bot = $userBot;
+                break;
+            }
+        }
+
+        if (!$bot) {
+            echo json_encode(['success' => false, 'message' => 'Bot non trovato']);
+            break;
+        }
+
+        $conversations = $bot['conversations'] ?? [];
+        if (!is_array($conversations) || count($conversations) === 0) {
+            echo json_encode(['success' => false, 'message' => 'Conversazione vuota']);
+            break;
+        }
+
+        $botName = (string)($bot['name'] ?? '');
+        $model = (string)($bot['model'] ?? '');
+        $createdAt = (string)($bot['created_at'] ?? '');
+        $exportedAt = date('Y-m-d H:i:s');
+        $personality = (string)($bot['personality'] ?? '');
+
+        $lines = [];
+        $lines[] = 'ChatBot Hub - Conversation Export';
+        $lines[] = '===================================';
+        $lines[] = '';
+        $lines[] = 'Bot Name: ' . ($botName !== '' ? $botName : 'N/A');
+        $lines[] = 'Model: ' . ($model !== '' ? $model : 'N/A');
+        $lines[] = 'Created: ' . ($createdAt !== '' ? $createdAt : 'N/A');
+        $lines[] = 'Exported: ' . $exportedAt;
+        $lines[] = '';
+        $lines[] = '---';
+        $lines[] = '';
+        $lines[] = 'System Prompt / Personalità:';
+        $lines[] = '---';
+        $lines[] = '';
+        $lines[] = ($personality !== '' ? $personality : 'N/A');
+        $lines[] = '';
+        $lines[] = '---';
+        $lines[] = '';
+        $lines[] = 'Conversation History:';
+        $lines[] = '---';
+        $lines[] = '';
+
+        foreach ($conversations as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $timestamp = (string)($entry['timestamp'] ?? 'N/A');
+            $role = (string)($entry['role'] ?? '');
+            $content = (string)($entry['content'] ?? '');
+
+            $label = 'Bot';
+            if ($role === 'user') {
+                $label = 'User';
+            } elseif ($role === 'assistant') {
+                $label = 'Bot';
+            } elseif ($role === 'system') {
+                $label = 'System';
+            }
+
+            $lines[] = '[' . $timestamp . '] ' . $label . ':';
+            $lines[] = $content;
+            $lines[] = '';
+        }
+
+        $lines[] = '===================================';
+        $lines[] = 'End of Export';
+
+        $txt = implode("\n", $lines);
+        if ($txt === '') {
+            echo json_encode(['success' => false, 'message' => 'Errore nella generazione del file']);
+            break;
+        }
+
+        $safeBotName = preg_replace('/[^A-Za-z0-9_-]+/', '_', strtolower($botName));
+        $safeBotName = trim((string)$safeBotName, '_');
+        if ($safeBotName === '') {
+            $safeBotName = 'bot';
+        }
+
+        $filename = 'bot_' . $safeBotName . '_' . date('Y-m-d') . '.txt';
+
+        header('Content-Type: text/plain; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('X-Content-Type-Options: nosniff');
+        echo $txt;
+        exit;
+
     case 'generateImage':
         if (!isset($_SESSION['user_id'])) {
             echo json_encode(['success' => false, 'message' => 'Non autenticato']);

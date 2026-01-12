@@ -389,6 +389,11 @@ font-size: 0.85rem;
 <button class="btn secondary small" onclick="closeChatInterface()">Chiudi</button>
 </div>
 
+<div id="export-button-container" class="hidden" style="margin-bottom: 1rem;">
+<button id="export-conversation-btn" class="btn secondary" onclick="exportConversation()">Esporta Conversazione</button>
+<p id="export-warning" class="hidden small-text" style="color: #f59e0b; margin-top: 0.5rem;">Esportazione disponibile per Premium</p>
+</div>
+
 <div id="chat-messages" class="chat-container"></div>
 
 <div class="form-group chat-input-area">
@@ -1101,6 +1106,81 @@ showAlert('Errore durante la registrazione', 'error');
             }
         }
 
+        async function exportConversation() {
+            if (!currentBot || !currentUser) {
+                showAlert('Errore: bot o utente non disponibile', 'error');
+                return;
+            }
+
+            if (currentUser.plan !== 'premium') {
+                showAlert('Esportazione non disponibile', 'error');
+                return;
+            }
+
+            if (!chatHistory || chatHistory.length === 0) {
+                showAlert('Conversazione vuota', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('./api.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'exportConversation',
+                        botId: currentBot.id
+                    })
+                });
+
+                const contentType = response.headers.get('Content-Type');
+                
+                if (contentType && contentType.includes('application/json')) {
+                    const result = await response.json();
+                    if (!result.success) {
+                        showAlert(result.message || 'Errore nell\'esportazione', 'error');
+                    }
+                    return;
+                }
+
+                if (!response.ok) {
+                    showAlert('Errore nell\'esportazione della conversazione', 'error');
+                    return;
+                }
+
+                const blob = await response.blob();
+                if (!blob || blob.size === 0) {
+                    showAlert('Errore nella generazione del file', 'error');
+                    return;
+                }
+
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+
+                const rawBotName = (currentBot.name || 'bot').toString();
+                const safeBotName = rawBotName
+                    .toLowerCase()
+                    .replace(/[^a-z0-9_-]+/g, '_')
+                    .replace(/^_+|_+$/g, '')
+                    .slice(0, 50) || 'bot';
+
+                const filename = `bot_${safeBotName}_${new Date().toISOString().split('T')[0]}.txt`;
+                a.download = filename;
+
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                showAlert('Conversazione esportata con successo!', 'success');
+            } catch (error) {
+                showAlert('Errore nell\'esportazione della conversazione', 'error');
+            }
+        }
+
         function closeChatInterface() {
             currentBot = null;
             chatHistory = [];
@@ -1108,6 +1188,7 @@ showAlert('Errore durante la registrazione', 'error');
             document.getElementById('chat-interface').classList.add('hidden');
             document.getElementById('chat-messages').innerHTML = '';
             document.getElementById('chat-input').value = '';
+            document.getElementById('export-button-container').classList.add('hidden');
             showChatbots();
         }
 
@@ -1127,6 +1208,22 @@ showAlert('Errore durante la registrazione', 'error');
                 historyWarning.textContent = 'Memoria di contesto limitata a 20 messaggi';
             } else if (currentUser.plan === 'basic') {
                 historyWarning.textContent = 'Memoria di contesto: 50 messaggi';
+            } else {
+                historyWarning.textContent = 'Memoria di contesto: 100 messaggi';
+            }
+
+            // Export controls (Premium only)
+            const exportContainer = document.getElementById('export-button-container');
+            const exportBtn = document.getElementById('export-conversation-btn');
+            const exportWarning = document.getElementById('export-warning');
+
+            exportContainer.classList.remove('hidden');
+            if (currentUser.plan === 'premium') {
+                exportBtn.classList.remove('hidden');
+                exportWarning.classList.add('hidden');
+            } else {
+                exportBtn.classList.add('hidden');
+                exportWarning.classList.remove('hidden');
             }
             
             showApiKeyWarning();
